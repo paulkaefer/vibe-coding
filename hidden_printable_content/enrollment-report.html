@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fall Enrollment Report</title>
+<style>
+  :root {
+    --purple: #510c76;
+    --purple-dark: #3a0856;
+    --purple-light: #f3ecf8;
+    --gray: #8c8d8f;
+    --gray-light: #f5f5f6;
+    --ink: #222;
+    --line: #e2e0e6;
+    /* chart palette */
+    --c1: #510c76; --c2: #8a4fb0; --c3: #b9a0d0; --c4: #8c8d8f; --c5: #c9a227; --c6: #3d8f8a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--gray-light); color: var(--ink);
+    font: 16px/1.6 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .page { max-width: 960px; margin: 0 auto; background: #fff; box-shadow: 0 2px 16px rgba(0,0,0,.08); }
+  header.masthead { background: var(--purple); color: #fff; padding: 28px 40px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+  .logo { display: flex; align-items: center; gap: 14px; }
+  .logo svg { width: 52px; height: 52px; flex: none; }
+  .logo .name { font-family: Georgia, "Times New Roman", serif; font-size: 22px; line-height: 1.1; letter-spacing: .02em; }
+  .logo .name small { display: block; font: 11px/1.4 -apple-system, "Segoe UI", sans-serif; letter-spacing: .18em; text-transform: uppercase; opacity: .75; margin-top: 4px; }
+  .meta { text-align: right; font-size: 13px; opacity: .85; }
+  .accent { height: 6px; background: linear-gradient(90deg, var(--gray) 0 33%, var(--c3) 33% 66%, var(--c2) 66%); }
+  main { padding: 40px; }
+  h1 { font-family: Georgia, serif; font-weight: 600; font-size: 34px; color: var(--purple); margin: 0 0 4px; }
+  .subtitle { color: var(--gray); margin: 0 0 28px; }
+  h2 { font-family: Georgia, serif; font-weight: 600; font-size: 22px; color: var(--purple); margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--purple-light); }
+  p { margin: 0 0 14px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 16px; margin: 24px 0; }
+  .kpi { background: var(--purple-light); border-left: 4px solid var(--purple); padding: 14px 16px; border-radius: 4px; }
+  .kpi .v { font-family: Georgia, serif; font-size: 30px; color: var(--purple); line-height: 1.1; }
+  .kpi .l { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: #555; }
+  .kpi .d { font-size: 13px; color: #2e7d4f; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  figure { margin: 0; }
+  figcaption { font-size: 13px; color: #555; margin-top: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; margin-top: 8px; }
+  .legend i { display: inline-block; width: 11px; height: 11px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  svg text { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  table { width: 100%; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+  th, td { padding: 9px 12px; text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  thead th { background: var(--purple); color: #fff; font-weight: 600; font-size: 13px; letter-spacing: .04em; }
+  tbody tr:nth-child(even) { background: var(--gray-light); }
+  tbody td { border-bottom: 1px solid var(--line); }
+  tfoot td { font-weight: 700; background: var(--purple-light); border-top: 2px solid var(--purple); }
+  .up { color: #2e7d4f; } .down { color: #b3261e; }
+  .note { font-size: 13px; color: #666; }
+  footer.site { background: var(--gray-light); color: #666; font-size: 13px; padding: 18px 40px; border-top: 1px solid var(--line); }
+  button.print { background: #fff; color: var(--purple); border: 1px solid #fff; border-radius: 4px; padding: 6px 14px; font: inherit; font-size: 13px; cursor: pointer; margin-top: 8px; }
+  button.print:hover { background: var(--purple-light); }
+
+  /* Visible only when printed */
+  .print-only { display: none; }
+
+  @media (max-width: 720px) {
+    header.masthead { flex-direction: column; align-items: flex-start; padding: 22px 16px; }
+    .meta { text-align: left; }
+    main { padding: 24px 16px; }
+    .charts { grid-template-columns: 1fr; }
+    footer.site { padding: 16px; }
+  }
+
+  @media print {
+    @page { size: letter; margin: 0.6in 0.6in 0.9in; }
+    body { background: #fff; }
+    .page { box-shadow: none; max-width: none; }
+    .no-print, button.print { display: none !important; }
+    .print-only { display: block; }
+    header.masthead { padding: 18px 24px; }
+    main { padding: 24px 0 0; }
+    h2 { break-after: avoid; }
+    figure, table, .kpis { break-inside: avoid; }
+    .print-banner { border: 1px solid var(--purple); background: var(--purple-light); color: var(--purple-dark); padding: 8px 12px; font-size: 12px; border-radius: 4px; margin-bottom: 20px; }
+    .print-footer {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      border-top: 2px solid var(--purple); padding-top: 6px;
+      font-size: 10px; line-height: 1.4; color: #444;
+      display: flex; justify-content: space-between; gap: 24px;
+    }
+    .print-footer b { color: var(--purple); }
+    footer.site { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div class="logo">
+      <!-- Placeholder mark: swap this SVG for the official UST logo file -->
+      <svg viewBox="0 0 52 52" role="img" aria-label="University mark placeholder">
+        <path d="M26 2 48 8v18c0 13-9 21-22 24C13 47 4 39 4 26V8z" fill="none" stroke="#fff" stroke-width="2.5"/>
+        <text x="26" y="33" text-anchor="middle" font-family="Georgia, serif" font-size="17" font-weight="700" fill="#fff">UST</text>
+      </svg>
+      <div class="name">University of St. Thomas<small>Institutional Research</small></div>
+    </div>
+    <div class="meta">
+      Report No. IR-2026-014<br>
+      Prepared October 14, 2026<br>
+      <button class="print" onclick="window.print()">Print / Save PDF</button>
+    </div>
+  </header>
+  <div class="accent"></div>
+
+  <main>
+    <div class="print-only print-banner">
+      <b>Printed copy.</b> Figures are fictional sample data for layout purposes only. The live version of this report is available online.
+    </div>
+
+    <h1>Fall 2025 Enrollment Report</h1>
+    <p class="subtitle">Headcount by college and multi-year trend &middot; Sample data</p>
+
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
+
+    <div class="kpis" id="kpis"></div>
+
+    <h2>Enrollment at a Glance</h2>
+    <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.</p>
+
+    <div class="charts">
+      <figure>
+        <svg id="pie" viewBox="0 0 300 260" role="img" aria-label="Share of enrollment by college"></svg>
+        <div class="legend" id="pie-legend"></div>
+        <figcaption>Figure 1. Share of total headcount by college.</figcaption>
+      </figure>
+      <figure>
+        <svg id="bars" viewBox="0 0 360 260" role="img" aria-label="Total headcount by year"></svg>
+        <figcaption>Figure 2. Total headcount, fall 2020&ndash;2025.</figcaption>
+      </figure>
+    </div>
+
+    <h2>Enrollment by College</h2>
+    <p>Sed ut perspiciatis unde omnis iste natus error sit voluptatem accusantium doloremque laudantium, totam rem aperiam, eaque ipsa quae ab illo inventore veritatis.</p>
+    <table>
+      <thead><tr><th>College</th><th>Undergraduate</th><th>Graduate</th><th>Total</th><th>Change vs. 2024</th></tr></thead>
+      <tbody id="rows"></tbody>
+      <tfoot id="foot"></tfoot>
+    </table>
+    <p class="note" style="margin-top:10px">Table 1. Fall headcount. All values are fictional.</p>
+
+    <h2>Next Steps</h2>
+    <p>Nemo enim ipsam voluptatem quia voluptas sit aspernatur aut odit aut fugit, sed quia consequuntur magni dolores eos qui ratione voluptatem sequi nesciunt. Neque porro quisquam est, qui dolorem ipsum quia dolor sit amet.</p>
+  </main>
+
+  <footer class="site">&copy; 2026 Institutional Research &middot; Lorem ipsum dolor sit amet. Sample report for layout purposes.</footer>
+
+  <!-- Print-only footer: repeats on every printed page -->
+  <div class="print-only print-footer">
+    <div><b>CONFIDENTIAL &mdash; INTERNAL USE ONLY.</b> Do not distribute outside the university. Data are fictional placeholders.</div>
+    <div style="text-align:right">Report IR-2026-014 &middot; Printed <span id="printed"></span></div>
+  </div>
+</div>
+
+<script>
+const colleges = [
+  { name: "Arts & Sciences",     ug: 3120, g: 410,  prev: 3490 },
+  { name: "Business",            ug: 2210, g: 1640, prev: 3720 },
+  { name: "Engineering",         ug: 1380, g: 520,  prev: 1810 },
+  { name: "Education",           ug: 640,  g: 980,  prev: 1665 },
+  { name: "Law",                 ug: 0,    g: 560,  prev: 540  },
+  { name: "Health Sciences",     ug: 720,  g: 330,  prev: 960  },
+];
+const colors = ["--c1","--c2","--c3","--c4","--c5","--c6"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const fmt = n => n.toLocaleString("en-US");
+const tot = colleges.map(c => c.ug + c.g);
+const grand = tot.reduce((a, b) => a + b, 0);
+const prevGrand = colleges.reduce((a, c) => a + c.prev, 0);
+const pct = (a, b) => ((a - b) / b * 100);
+const sgn = p => `<span class="${p >= 0 ? "up" : "down"}">${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(1)}%</span>`;
+
+// KPIs
+const ug = colleges.reduce((a, c) => a + c.ug, 0), gr = colleges.reduce((a, c) => a + c.g, 0);
+document.getElementById("kpis").innerHTML = [
+  ["Total headcount", fmt(grand), sgn(pct(grand, prevGrand)) + " vs. 2024"],
+  ["Undergraduate", fmt(ug), Math.round(ug / grand * 100) + "% of total"],
+  ["Graduate", fmt(gr), Math.round(gr / grand * 100) + "% of total"],
+  ["Colleges", colleges.length, "Sample data"],
+].map(([l, v, d]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`).join("");
+
+// Table
+document.getElementById("rows").innerHTML = colleges.map((c, i) =>
+  `<tr><td>${c.name}</td><td>${fmt(c.ug)}</td><td>${fmt(c.g)}</td><td>${fmt(tot[i])}</td><td>${sgn(pct(tot[i], c.prev))}</td></tr>`).join("");
+document.getElementById("foot").innerHTML =
+  `<tr><td>Total</td><td>${fmt(ug)}</td><td>${fmt(gr)}</td><td>${fmt(grand)}</td><td>${sgn(pct(grand, prevGrand))}</td></tr>`;
+
+// Donut chart
+(function () {
+  const svg = document.getElementById("pie"), cx = 150, cy = 120, R = 100, r = 58;
+  let a0 = -Math.PI / 2, out = "";
+  tot.forEach((v, i) => {
+    const a1 = a0 + v / grand * 2 * Math.PI, large = a1 - a0 > Math.PI ? 1 : 0;
+    const p = (a, rad) => `${cx + rad * Math.cos(a)} ${cy + rad * Math.sin(a)}`;
+    out += `<path d="M${p(a0,R)} A${R} ${R} 0 ${large} 1 ${p(a1,R)} L${p(a1,r)} A${r} ${r} 0 ${large} 0 ${p(a0,r)}Z" fill="${colors[i]}" stroke="#fff" stroke-width="2"><title>${colleges[i].name}: ${fmt(v)} (${(v/grand*100).toFixed(1)}%)</title></path>`;
+    a0 = a1;
+  });
+  out += `<text x="${cx}" y="${cy - 2}" text-anchor="middle" font-size="22" font-weight="700" fill="#510c76">${fmt(grand)}</text>
+          <text x="${cx}" y="${cy + 16}" text-anchor="middle" font-size="11" fill="#666">students</text>`;
+  svg.innerHTML = out;
+  document.getElementById("pie-legend").innerHTML = colleges.map((c, i) =>
+    `<span><i style="background:${colors[i]}"></i>${c.name} ${(tot[i]/grand*100).toFixed(0)}%</span>`).join("");
+})();
+
+// Bar chart
+(function () {
+  const data = [["2020", 9650], ["2021", 9920], ["2022", 10180], ["2023", 10540], ["2024", prevGrand], ["2025", grand]];
+  const svg = document.getElementById("bars"), W = 360, H = 260, L = 44, B = 28, T = 14;
+  const max = 12000, ph = H - B - T, bw = (W - L - 10) / data.length;
+  let out = "";
+  for (let v = 0; v <= max; v += 3000) {
+    const y = T + ph - v / max * ph;
+    out += `<line x1="${L}" x2="${W - 6}" y1="${y}" y2="${y}" stroke="#e2e0e6"/><text x="${L - 6}" y="${y + 4}" text-anchor="end" font-size="10" fill="#666">${v / 1000}k</text>`;
+  }
+  data.forEach(([yr, v], i) => {
+    const h = v / max * ph, x = L + i * bw + bw * .15, y = T + ph - h, last = i === data.length - 1;
+    out += `<rect x="${x}" y="${y}" width="${bw * .7}" height="${h}" rx="2" fill="${last ? "#510c76" : "#b9a0d0"}"><title>${yr}: ${fmt(v)}</title></rect>
+            <text x="${x + bw * .35}" y="${y - 4}" text-anchor="middle" font-size="10" fill="#333">${(v/1000).toFixed(1)}k</text>
+            <text x="${x + bw * .35}" y="${H - 10}" text-anchor="middle" font-size="11" fill="#555">${yr}</text>`;
+  });
+  svg.innerHTML = out;
+})();
+
+// Printed date for the print-only footer
+document.getElementById("printed").textContent =
+  new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
+window.addEventListener("beforeprint", () => {
+  document.getElementById("printed").textContent =
+    new Date().toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Class Timer</title>
+<style>
+  :root {
+    --c1:#ffc2e2; --c2:#cdbfff; --c3:#b8e6ff; --c4:#c6f5d3; --c5:#ffeaa8; --c6:#ffcdb5;
+    --accent:#ffc533;
+    --glass: rgba(255,255,255,.55);
+    --glass-border: rgba(255,255,255,.85);
+    --text: #3b1f7a;
+    --line: rgba(110,80,190,.75);
+  }
+  body.warn   { --c1:#ffd9a0; --c2:#ffb8c8; --c3:#ffe3a0; --c4:#ffc2e2; --c5:#ffcfa8; --c6:#ffb9b0; }
+  body.paused { --c1:#b8e6ff; --c2:#bff3ee; --c3:#cdd8ff; --c4:#c6f5d3; --c5:#d8ecff; --c6:#c0e0ff; }
+  body.done   { --c1:#ffb3b3; --c2:#ffd0a0; --c3:#fff0a0; --c4:#ffb3d1; --c5:#ffc8a8; --c6:#ffe0b3; }
+
+  * { box-sizing: border-box; }
+  html { min-height: 100%; }
+  body {
+    margin: 0; min-height: 100vh;
+    font-family: ui-rounded, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+    color: var(--text);
+    background: #fff4fb;
+    display: flex; justify-content: center;
+    padding: 16px;
+  }
+  /* slowly swirling pastel tie-dye */
+  body::before {
+    content: ""; position: fixed; inset: -60%; z-index: -1;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(255,255,255,.75) 0, rgba(255,255,255,0) 22%),
+      conic-gradient(from 0deg, var(--c1), var(--c2), var(--c3), var(--c4), var(--c5), var(--c6), var(--c1));
+    filter: blur(50px);
+    animation: swirl 60s linear infinite;
+  }
+  @keyframes swirl { to { transform: rotate(360deg); } }
+  body.done::before { animation: swirl 12s linear infinite; }
+
+  .card {
+    width: min(560px, 100%);
+    margin: auto;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-radius: 32px;
+    padding: 28px 24px 24px;
+    box-shadow: 0 16px 50px rgba(100,60,180,.18);
+    text-align: center;
+  }
+
+  .views { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 16px; border-radius: 999px; background: rgba(255,255,255,.6); box-shadow: inset 0 0 0 1px rgba(110,80,190,.15); }
+  .views button { background: transparent; color: #4a1fb8; padding: 8px 16px; border-radius: 999px; font-size: .9rem; }
+  .views button[aria-pressed=true] { background: linear-gradient(135deg,#7b2ff7,#e83e8c); color: #fff; box-shadow: 0 3px 10px rgba(123,47,247,.35); }
+
+  .dial { position: relative; width: min(340px, 78vw); margin: 0 auto 14px; }
+  .dial[data-view=ring] { aspect-ratio: 1; }
+  .dial svg.v { display: none; width: 100%; height: auto; }
+  .dial[data-view=ring] #vRing { display: block; height: 100%; transform: rotate(-90deg); }
+  .dial[data-view=sand] #vSand { display: block; width: 58%; margin: 0 auto; filter: drop-shadow(0 8px 14px rgba(0,0,0,.25)); }
+  .dial[data-view=tea]  #vTea  { display: block; filter: drop-shadow(0 8px 14px rgba(0,0,0,.2)); }
+  .dial:not([data-view=ring]) .readout { position: static; margin-top: 2px; }
+  .dial:not([data-view=ring]) .time { font-size: clamp(2.6rem, 12vw, 3.8rem); }
+
+  /* hourglass */
+  .stream { stroke-dasharray: 1 5; animation: fall .35s linear infinite; transition: opacity .2s; }
+  @keyframes fall { to { stroke-dashoffset: -6; } }
+
+  /* tea */
+  .steam path { opacity: 0; fill: none; stroke: rgba(150,120,210,.75); stroke-width: 5; stroke-linecap: round; }
+  .gl { stroke: var(--line); }
+  .dial[data-state=running] .steam path, .dial[data-state=done] .steam path { animation: rise 3.2s ease-in-out infinite; }
+  .steam path:nth-child(2) { animation-delay: -1.1s !important; }
+  .steam path:nth-child(3) { animation-delay: -2.2s !important; }
+  @keyframes rise { 0% { opacity: 0; transform: translateY(16px); } 40% { opacity: .75; } 100% { opacity: 0; transform: translateY(-14px); } }
+  .dial[data-state=running] .bag { animation: bob 2.8s ease-in-out infinite; }
+  @keyframes bob { 50% { transform: translateY(8px); } }
+  .spark { display: none; font-size: 22px; }
+  .dial[data-state=done] .spark { display: inline; animation: twinkle 1s ease-in-out infinite alternate; }
+  @keyframes twinkle { from { opacity: .3; } to { opacity: 1; } }
+  .row.teaonly { display: none; }
+  body[data-view=tea] .row.teaonly { display: flex; }
+  .tea-btn { color: #fff; font-size: 1rem; box-shadow: 0 6px 16px rgba(0,0,0,.2); }
+  .tea-btn small { display: block; font-size: .65rem; font-weight: 600; opacity: .9; letter-spacing: .06em; text-transform: uppercase; }
+  .tg { background: linear-gradient(135deg,#43c46f,#1b8a5a); }
+  .to { background: linear-gradient(135deg,#e5a13a,#b8651b); }
+  .tb { background: linear-gradient(135deg,#c2410c,#7c2d12); }
+  .th { background: linear-gradient(135deg,#e879b9,#a23fd6); }
+  .track { fill: none; stroke: rgba(110,80,190,.15); stroke-width: 14; }
+  .prog  { fill: none; stroke: url(#grad); stroke-width: 14; stroke-linecap: round;
+           transition: stroke-dashoffset .25s linear; filter: drop-shadow(0 0 6px rgba(160,100,230,.35)); }
+  .readout { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+  .time { font-size: clamp(3rem, 15vw, 5.2rem); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1;
+          text-shadow: 0 2px 14px rgba(255,255,255,.8); }
+  .status { margin-top: 8px; font-size: .95rem; letter-spacing: .14em; text-transform: uppercase; opacity: .9; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 12px 0; }
+  button, select {
+    font: inherit; color: inherit; cursor: pointer; border: 0;
+    border-radius: 16px; padding: 12px 20px; font-weight: 700;
+    transition: transform .1s, filter .15s;
+  }
+  button:hover { filter: brightness(1.12); }
+  button:active { transform: scale(.95); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+  .preset { font-size: 1.15rem; min-width: 90px; color: #fff; box-shadow: 0 6px 16px rgba(0,0,0,.2); }
+  .p10 { background: linear-gradient(135deg,#00c9a7,#0096c7); }
+  .p15 { background: linear-gradient(135deg,#7b2ff7,#c13cff); }
+  .a1  { background: linear-gradient(135deg,#ff9f1c,#ff6b35); }
+  .a5  { background: linear-gradient(135deg,#ff4d8d,#ef233c); }
+  .preset small { display:block; font-size:.65rem; font-weight:600; opacity:.85; letter-spacing:.06em; text-transform:uppercase; }
+
+  .ctl { min-width: 120px; font-size: 1.05rem; background: #fff; color: #3a1c8f; box-shadow: 0 6px 16px rgba(0,0,0,.2); }
+  .ctl.reset { background: rgba(70,40,140,.85); color: #fff; }
+
+  .custom { display:flex; gap:8px; justify-content:center; align-items:center; font-weight:600; }
+  input[type=number] { width: 80px; font: inherit; padding: 10px; border-radius: 12px; border: 0; text-align: center; font-weight:700; }
+
+  .sound {
+    margin-top: 16px; padding: 14px; border-radius: 20px; background: rgba(255,255,255,.5);
+    display: flex; flex-wrap: wrap; gap: 10px 14px; justify-content: center; align-items: center; font-size: .9rem;
+  }
+  .sound label { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+  select { padding: 8px 12px; background: rgba(255,255,255,.95); color: #3a1c8f; border-radius: 12px; }
+  input[type=range] { accent-color: var(--accent); width: 100px; }
+  .test { padding: 8px 14px; background: var(--accent); color: #3b1f7a; border-radius: 12px; }
+  .hint { margin-top: 12px; font-size: .75rem; opacity: .75; }
+
+  #dismiss { display:none; margin: 6px auto 0; background:#fff; color:#d90429; font-size:1.2rem; padding:14px 30px; animation: pulse .8s ease-in-out infinite alternate; }
+  body.done #dismiss { display:block; }
+  @keyframes pulse { to { transform: scale(1.07); } }
+
+  @media (prefers-reduced-motion: reduce) { body::before, body.done::before, #dismiss, .stream, .steam path, .bag { animation: none !important; } }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="views" role="group" aria-label="Timer style">
+    <button data-view="ring">⭕ Ring</button>
+    <button data-view="sand">⏳ Sand</button>
+    <button data-view="tea">🫖 Tea</button>
+  </div>
+
+  <div class="dial" id="dial" data-view="ring" data-state="idle">
+    <svg class="v" id="vRing" viewBox="0 0 200 200" aria-hidden="true">
+      <defs>
+        <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ffd23f"/><stop offset=".5" stop-color="#ff6bcb"/><stop offset="1" stop-color="#4cc9f0"/>
+        </linearGradient>
+      </defs>
+      <circle class="track" cx="100" cy="100" r="90"/>
+      <circle class="prog" id="ring" cx="100" cy="100" r="90"/>
+    </svg>
+    <svg class="v" id="vSand" viewBox="0 0 200 260" aria-hidden="true">
+      <defs>
+        <linearGradient id="sandG" gradientUnits="userSpaceOnUse" x1="0" y1="20" x2="0" y2="240">
+          <stop offset="0" stop-color="#ffe27a"/><stop offset="1" stop-color="#ff8a1f"/>
+        </linearGradient>
+        <linearGradient id="capG" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ff4d8d"/><stop offset="1" stop-color="#7b2ff7"/>
+        </linearGradient>
+        <clipPath id="cTop"><path d="M45 22 L155 22 C155 70 118 100 104 128 L96 128 C82 100 45 70 45 22 Z"/></clipPath>
+        <clipPath id="cBot"><path transform="translate(0 260) scale(1 -1)" d="M45 22 L155 22 C155 70 118 100 104 128 L96 128 C82 100 45 70 45 22 Z"/></clipPath>
+      </defs>
+      <g clip-path="url(#cTop)"><rect id="sandTop" x="30" y="22" width="140" height="108" fill="url(#sandG)"/></g>
+      <g clip-path="url(#cBot)">
+        <rect id="sandBot" x="30" y="240" width="140" height="0" fill="url(#sandG)"/>
+        <polygon id="mound" points="" fill="url(#sandG)"/>
+      </g>
+      <line id="stream" class="stream" x1="100" y1="122" x2="100" y2="238" stroke="#ffd23f" stroke-width="2.5" stroke-linecap="round" opacity="0"/>
+      <g fill="rgba(255,255,255,.35)" class="gl" stroke-width="3" stroke-linejoin="round">
+        <path d="M45 22 L155 22 C155 70 118 100 104 128 L96 128 C82 100 45 70 45 22 Z"/>
+        <path transform="translate(0 260) scale(1 -1)" d="M45 22 L155 22 C155 70 118 100 104 128 L96 128 C82 100 45 70 45 22 Z"/>
+      </g>
+      <path d="M60 34 C60 62 72 80 86 98" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="3" stroke-linecap="round"/>
+      <line x1="36" y1="18" x2="36" y2="242" stroke="url(#capG)" stroke-width="5" stroke-linecap="round"/>
+      <line x1="164" y1="18" x2="164" y2="242" stroke="url(#capG)" stroke-width="5" stroke-linecap="round"/>
+      <rect x="26" y="8" width="148" height="15" rx="7.5" fill="url(#capG)"/>
+      <rect x="26" y="237" width="148" height="15" rx="7.5" fill="url(#capG)"/>
+    </svg>
+
+    <svg class="v" id="vTea" viewBox="0 0 250 240" aria-hidden="true">
+      <defs>
+        <linearGradient id="teaL" x1="0" y1="0" x2="0" y2="1">
+          <stop id="teaS1" offset="0" stop-color="rgba(190,225,240,.3)"/>
+          <stop id="teaS2" offset="1" stop-color="rgba(190,225,240,.3)"/>
+        </linearGradient>
+        <linearGradient id="saucerG" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0" stop-color="#ff6bcb"/><stop offset=".5" stop-color="#ffd23f"/><stop offset="1" stop-color="#4cc9f0"/>
+        </linearGradient>
+        <linearGradient id="tagG" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#ffd23f"/><stop offset="1" stop-color="#ff6b35"/>
+        </linearGradient>
+        <radialGradient id="plumeG">
+          <stop offset="0" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+        </radialGradient>
+        <clipPath id="cCup"><path d="M52 98 L188 98 C188 158 166 198 120 198 C74 198 52 158 52 98 Z"/></clipPath>
+      </defs>
+      <ellipse cx="120" cy="216" rx="100" ry="16" fill="url(#saucerG)"/>
+      <ellipse cx="120" cy="211" rx="72" ry="8" fill="rgba(0,0,0,.2)"/>
+      <g class="steam">
+        <path d="M95 76 C84 62 106 52 96 38 C89 27 104 18 98 6"/>
+        <path d="M122 74 C111 60 133 50 123 36 C116 25 131 16 125 4"/>
+        <path d="M149 76 C138 62 160 52 150 38 C143 27 158 18 152 6"/>
+      </g>
+      <path d="M190 112 C238 104 234 172 184 168" fill="none" class="gl" stroke-width="9" stroke-linecap="round"/>
+      <path d="M46 92 L194 92 C194 160 168 204 120 204 C72 204 46 160 46 92 Z" fill="rgba(255,255,255,.35)"/>
+      <g clip-path="url(#cCup)">
+        <rect x="40" y="110" width="160" height="100" fill="url(#teaL)"/>
+        <ellipse id="teaPlume" cx="120" cy="150" rx="40" ry="34" fill="url(#plumeG)" opacity="0"/>
+        <ellipse id="teaSurf" cx="120" cy="110" rx="68" ry="7" fill="rgba(255,255,255,.3)"/>
+      </g>
+      <g class="bag">
+        <path d="M120 130 L120 100 Q118 72 80 68" fill="none" stroke="#8a6fc7" stroke-width="1.8"/>
+        <g transform="rotate(-10 64 78)">
+          <rect x="50" y="60" width="28" height="34" rx="6" fill="url(#tagG)" stroke="#fff" stroke-width="1.5"/>
+          <circle cx="64" cy="67" r="2.4" fill="#fff"/>
+          <text x="64" y="88" font-size="15" text-anchor="middle">🍃</text>
+        </g>
+        <path d="M104 128 L136 128 L134 160 Q120 167 106 160 Z" fill="#fff6e0" stroke="#c9a66b" stroke-width="2" stroke-linejoin="round"/>
+        <line x1="108" y1="135" x2="132" y2="135" stroke="#c9a66b" stroke-width="1.5" stroke-dasharray="3 2"/>
+      </g>
+      <path d="M46 92 L194 92 C194 160 168 204 120 204 C72 204 46 160 46 92 Z" fill="none" class="gl" stroke-width="4" stroke-linejoin="round"/>
+      <ellipse cx="120" cy="92" rx="74" ry="9" fill="rgba(255,255,255,.12)" class="gl" stroke-width="3"/>
+      <path d="M62 112 C62 142 72 166 86 182" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="4" stroke-linecap="round"/>
+      <text class="spark" x="30" y="60">✨</text>
+      <text class="spark" x="205" y="46">✨</text>
+      <text class="spark" x="170" y="20">✨</text>
+    </svg>
+
+    <div class="readout">
+      <div class="time" id="time" role="timer" aria-live="off">0:00</div>
+      <div class="status" id="status">Ready</div>
+    </div>
+  </div>
+
+  <button id="dismiss">⏹ Stop alarm</button>
+
+  <div class="row">
+    <button class="preset p10" data-set="10">10<small>minutes</small></button>
+    <button class="preset p15" data-set="15">15<small>minutes</small></button>
+    <button class="preset a1" data-add="1">+1<small>min</small></button>
+    <button class="preset a5" data-add="5">+5<small>min</small></button>
+  </div>
+
+  <div class="row teaonly">
+    <button class="tea-btn preset tg" data-set="3">🍃 Green<small>3 min</small></button>
+    <button class="tea-btn preset to" data-set="4">🍵 Oolong<small>4 min</small></button>
+    <button class="tea-btn preset tb" data-set="5">☕ Black<small>5 min</small></button>
+    <button class="tea-btn preset th" data-set="6">🌸 Herbal<small>6 min</small></button>
+  </div>
+
+  <div class="row">
+    <button class="ctl" id="pause">⏸ Pause</button>
+    <button class="ctl reset" id="reset">⏹ Reset</button>
+  </div>
+
+  <div class="custom">
+    Custom
+    <input type="number" id="custom" min="1" max="999" placeholder="min" aria-label="Custom minutes">
+    <button class="ctl" id="customGo" style="min-width:0;padding:10px 16px">Start</button>
+  </div>
+
+  <div class="sound">
+    <label>🔔 Sound
+      <select id="sound">
+        <option value="bell">Bell</option>
+        <option value="chime">Wind chime</option>
+        <option value="gong">Soft gong</option>
+        <option value="marimba">Marimba</option>
+        <option value="harp">Harp sweep</option>
+        <option value="digital">Digital beeps</option>
+        <option value="none">Silent (visual only)</option>
+      </select>
+    </label>
+    <label>Repeat
+      <select id="repeat">
+        <option value="1">Once</option>
+        <option value="3" selected>3 times</option>
+        <option value="0">Until I stop it</option>
+      </select>
+    </label>
+    <label>🔊 <input type="range" id="vol" min="0" max="1" step=".05" value=".6" aria-label="Volume"></label>
+    <button class="test" id="test">▶ Preview</button>
+  </div>
+  <div class="hint">Shortcuts: Space = pause/resume · R = reset · V = switch style · 1 = 10 min · 2 = 15 min · + / = adds 1 · 5 adds 5</div>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const ring = $('ring'), timeEl = $('time'), statusEl = $('status');
+  const C = 2 * Math.PI * 90;
+  ring.style.strokeDasharray = C;
+
+  let total = 0;        // ms, for the ring
+  let remaining = 0;    // ms
+  let endAt = 0;
+  let state = 'idle';   // idle | running | paused | done
+  let tick = null, alarmTimer = null, alarmCount = 0;
+  let view = 'ring';    // ring | sand | tea
+
+  /* ---------- audio ---------- */
+  let ctx = null;
+  const audio = () => {
+    if (!ctx) { try { ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {} }
+    if (ctx && ctx.state === 'suspended') ctx.resume();
+    return ctx;
+  };
+  const vol = () => parseFloat($('vol').value);
+
+  // one decaying sine partial
+  function tone(freq, t0, dur, gain, type = 'sine', attack = .005) {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(gain * vol(), .0002), t0 + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(ctx.destination);
+    o.start(t0); o.stop(t0 + dur + .05);
+  }
+
+  const SOUNDS = {
+    bell(t) { // inharmonic partials = bell-like
+      [[523.25,1,2.6],[1046.5,.5,2.0],[1568,.3,1.5],[2093,.2,1.0],[1318.5*1.04,.18,1.2]]
+        .forEach(([f,g,d]) => tone(f, t, d, .35 * g));
+      return 2.8;
+    },
+    chime(t) {
+      [1318.5,1568,1760,2093,2349].forEach((f,i) => tone(f, t + i*.14, 1.4, .22));
+      return 2.2;
+    },
+    gong(t) {
+      [[110,1,4],[165,.6,3.5],[221,.5,3],[331,.3,2.2],[447,.2,1.6]].forEach(([f,g,d]) => tone(f, t, d, .5*g, 'sine', .02));
+      return 4.2;
+    },
+    marimba(t) {
+      [523.25,659.25,783.99,1046.5].forEach((f,i) => { tone(f, t+i*.18, .5, .4); tone(f*4, t+i*.18, .08, .1); });
+      return 1.6;
+    },
+    harp(t) {
+      [392,493.9,587.3,740,880,987.8,1174.7].forEach((f,i) => tone(f, t+i*.09, 1.6, .22, 'triangle'));
+      return 2.4;
+    },
+    digital(t) {
+      for (let i = 0; i < 4; i++) tone(988, t + i*.22, .14, .16, 'square', .004);
+      return 1.4;
+    },
+    none() { return 1.5; }
+  };
+
+  function playOnce() {
+    const name = $('sound').value;
+    if (name === 'none' || !audio()) return 1.5;
+    return SOUNDS[name](ctx.currentTime + .02);
+  }
+
+  /* ---------- display ---------- */
+  const fmt = ms => {
+    const s = Math.ceil(ms / 1000);
+    const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+    return h ? `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`
+             : `${m}:${String(sec).padStart(2,'0')}`;
+  };
+
+  /* ---------- hourglass geometry ---------- */
+  // Cumulative chamber area (from the rim down), so sand drains by volume, not height.
+  const sandYs = [], sandCum = [];
+  (function () {
+    const P = [[155,22],[155,70],[118,100],[104,128]];
+    let prev = null, acc = 0;
+    for (let i = 0; i <= 200; i++) {
+      const t = i / 200, u = 1 - t;
+      const x = u*u*u*P[0][0] + 3*u*u*t*P[1][0] + 3*u*t*t*P[2][0] + t*t*t*P[3][0];
+      const y = u*u*u*P[0][1] + 3*u*u*t*P[1][1] + 3*u*t*t*P[2][1] + t*t*t*P[3][1];
+      if (prev) acc += ((x - 100) + (prev.x - 100)) * (y - prev.y);
+      sandYs.push(y); sandCum.push(acc); prev = { x, y };
+    }
+  })();
+  function sandLevel(drained) {
+    const target = drained * sandCum[sandCum.length - 1];
+    let lo = 0, hi = sandCum.length - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (sandCum[m] < target) lo = m; else hi = m; }
+    const span = sandCum[hi] - sandCum[lo] || 1;
+    return sandYs[lo] + (sandYs[hi] - sandYs[lo]) * (target - sandCum[lo]) / span;
+  }
+  function drawSand(f) {
+    const yt = sandLevel(1 - f), yb = 260 - yt;   // the chambers mirror each other
+    const top = $('sandTop'), bot = $('sandBot');
+    top.setAttribute('y', yt); top.setAttribute('height', Math.max(0, 130 - yt));
+    bot.setAttribute('y', yb); bot.setAttribute('height', Math.max(0, 240 - yb));
+    $('mound').setAttribute('points', f < 1 && f > 0 ? `100,${yb - 10} 72,${yb + 1} 128,${yb + 1}` : '');
+    const s = $('stream');
+    s.setAttribute('y2', yb);
+    s.setAttribute('opacity', state === 'running' && f > 0 ? 1 : 0);
+  }
+
+  /* ---------- tea ---------- */
+  const TEA = [[0,[190,225,240,.30]],[.25,[246,214,120,.65]],[.55,[226,150,50,.85]],[1,[140,55,18,.95]]];
+  function teaColor(e) {
+    e = Math.min(1, Math.max(0, e));
+    for (let i = 1; i < TEA.length; i++) {
+      if (e <= TEA[i][0]) {
+        const [a0, c0] = TEA[i-1], [a1, c1] = TEA[i], k = (e - a0) / (a1 - a0);
+        return c0.map((v, j) => v + (c1[j] - v) * k);
+      }
+    }
+    return TEA[TEA.length - 1][1];
+  }
+  const rgba = (c, d = 0) => `rgba(${c.slice(0,3).map(v => Math.round(Math.min(255, Math.max(0, v + d)))).join(',')},${c[3]})`;
+  const teaLabel = e => e < .12 ? 'Just water' : e < .4 ? 'Light' : e < .7 ? 'Golden' : e < 1 ? 'Strong' : 'Perfect';
+  function drawTea(e) {
+    const c = teaColor(e);
+    $('teaS1').setAttribute('stop-color', rgba(c, 28));
+    $('teaS2').setAttribute('stop-color', rgba(c, -25));
+    $('teaSurf').setAttribute('fill', rgba(c, 50));
+    const plume = $('teaPlume');
+    plume.setAttribute('fill', 'none');
+    plume.style.fill = rgba(teaColor(e + .3), -30);
+    plume.setAttribute('opacity', state === 'idle' ? 0 : Math.sin(Math.min(1, e) * Math.PI) * .6);
+  }
+
+  function render() {
+    const tea = view === 'tea';
+    timeEl.textContent = state === 'done' ? (tea ? "Tea's ready!" : "Time's up!") : fmt(remaining);
+    timeEl.style.fontSize = state === 'done' ? 'clamp(2rem, 9vw, 3.2rem)' : '';
+    const frac = total ? remaining / total : 0;
+    ring.style.strokeDashoffset = C * (1 - frac);
+    $('dial').dataset.state = state;
+    drawSand(state === 'idle' ? 1 : frac);
+    drawTea(total ? 1 - frac : 0);
+    statusEl.textContent = { idle: 'Ready', running: 'Running', paused: 'Paused', done: 'Finished' }[state];
+    if (tea) {
+      const lbl = teaLabel(total ? 1 - frac : 0);
+      statusEl.textContent = { idle: 'Pick a tea', running: 'Steeping · ' + lbl, paused: 'Paused · ' + lbl, done: 'Enjoy! 🍵' }[state];
+    }
+    $('pause').textContent = state === 'paused' ? '▶ Resume' : '⏸ Pause';
+    document.body.classList.toggle('paused', state === 'paused');
+    document.body.classList.toggle('done', state === 'done');
+    document.body.classList.toggle('warn', state === 'running' && remaining <= 60000 && remaining > 0);
+    document.title = state === 'idle' ? 'Class Timer' : state === 'done' ? (tea ? "🍵 Tea's ready!" : "⏰ Time's up!") : `${fmt(remaining)} · Class Timer`;
+  }
+
+  function setView(v) {
+    view = v;
+    $('dial').dataset.view = v;
+    document.body.dataset.view = v;
+    document.querySelectorAll('.views button').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === v));
+    save(); render();
+  }
+
+  /* ---------- timer logic ---------- */
+  function loop() {
+    remaining = Math.max(0, endAt - Date.now());
+    if (remaining <= 0) return finish();
+    render();
+  }
+
+  function startRunning() {
+    audio(); // unlock sound on a user gesture
+    state = 'running';
+    endAt = Date.now() + remaining;
+    clearInterval(tick); tick = setInterval(loop, 200);
+    render();
+  }
+
+  function setAndStart(min) {
+    stopAlarm();
+    total = remaining = min * 60000;
+    startRunning();
+  }
+
+  function addMinutes(min) {
+    if (state === 'idle' || state === 'done') return setAndStart(min);
+    const add = min * 60000;
+    total += add; remaining += add;
+    if (state === 'running') endAt += add;
+    render();
+  }
+
+  function togglePause() {
+    if (state === 'running') {
+      remaining = Math.max(0, endAt - Date.now());
+      clearInterval(tick); state = 'paused'; render();
+    } else if (state === 'paused') startRunning();
+  }
+
+  function reset() {
+    clearInterval(tick); stopAlarm();
+    state = 'idle'; total = remaining = 0; render();
+  }
+
+  function finish() {
+    clearInterval(tick);
+    remaining = 0; state = 'done'; render();
+    alarmCount = 0; ringAlarm();
+  }
+
+  function ringAlarm() {
+    const reps = parseInt($('repeat').value, 10);
+    alarmCount++;
+    const len = playOnce();
+    if (reps === 0 || alarmCount < reps) alarmTimer = setTimeout(ringAlarm, (len + .8) * 1000);
+  }
+
+  function stopAlarm() {
+    clearTimeout(alarmTimer); alarmTimer = null;
+    if (state === 'done') { state = 'idle'; total = remaining = 0; render(); }
+  }
+
+  /* ---------- wiring ---------- */
+  document.querySelectorAll('[data-set]').forEach(b => b.onclick = () => setAndStart(+b.dataset.set));
+  document.querySelectorAll('[data-add]').forEach(b => b.onclick = () => addMinutes(+b.dataset.add));
+  $('pause').onclick = togglePause;
+  $('reset').onclick = reset;
+  $('dismiss').onclick = stopAlarm;
+  document.querySelectorAll('.views button').forEach(b => b.onclick = () => setView(b.dataset.view));
+  $('test').onclick = () => { clearTimeout(alarmTimer); playOnce(); };
+  $('sound').onchange = () => { if ($('sound').value !== 'none') playOnce(); save(); };
+  $('repeat').onchange = save; $('vol').onchange = save;
+  const goCustom = () => {
+    const v = parseFloat($('custom').value);
+    if (v > 0) setAndStart(v);
+  };
+  $('customGo').onclick = goCustom;
+  $('custom').onkeydown = e => { if (e.key === 'Enter') goCustom(); };
+
+  document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    if (e.key === ' ') { e.preventDefault(); if (state === 'done') stopAlarm(); else togglePause(); }
+    else if (e.key === 'r' || e.key === 'R') reset();
+    else if (e.key === '1') setAndStart(10);
+    else if (e.key === '2') setAndStart(15);
+    else if (e.key === '+' || e.key === '=') addMinutes(1);
+    else if (e.key === '5') addMinutes(5);
+    else if (e.key === 'v' || e.key === 'V') setView({ ring: 'sand', sand: 'tea', tea: 'ring' }[view]);
+  });
+
+  // remember sound preferences (silently ignored if storage is unavailable)
+  function save() {
+    try { localStorage.setItem('classTimer', JSON.stringify({ s: $('sound').value, r: $('repeat').value, v: $('vol').value, w: view })); } catch (e) {}
+  }
+  try {
+    const p = JSON.parse(localStorage.getItem('classTimer') || 'null');
+    if (p) {
+      $('sound').value = p.s; $('repeat').value = p.r; $('vol').value = p.v;
+      if (['ring', 'sand', 'tea'].includes(p.w)) view = p.w;
+    }
+  } catch (e) {}
+
+  // catch up immediately if the tab was throttled in the background
+  document.addEventListener('visibilitychange', () => { if (state === 'running') loop(); });
+
+  setView(view);
+})();
+</script>
+</body>
+</html>

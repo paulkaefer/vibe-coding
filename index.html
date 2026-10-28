@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vibes</title>
+<style>
+  :root {
+    --bg: #f6f5f1; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6a64;
+    --border: #dcdad2; --accent: #3b5bdb; --accent-text: #fff;
+    --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --glow: none; --radius: 12px;
+  }
+  [data-theme="dark"] {
+    --bg: #14151a; --panel: #1e2027; --text: #ececea; --muted: #9a9a94;
+    --border: #33353e; --accent: #7c93ff; --accent-text: #10121a;
+  }
+  [data-theme="neon"] {
+    --bg: #000; --panel: rgba(0,12,0,.82); --text: #00ff41; --muted: #00a82a;
+    --border: #00ff41; --accent: #00ff41; --accent-text: #000;
+    --font: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --glow: 0 0 8px rgba(0,255,65,.55); --radius: 2px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font-family: var(--font); transition: background .2s, color .2s;
+  }
+  #rain { position: fixed; inset: 0; z-index: 0; display: none; opacity: .35; width: 100%; height: 100%; }
+  [data-theme="neon"] #rain { display: block; }
+  main { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  h1 { margin: 0; font-size: 1.4rem; text-shadow: var(--glow); }
+  h1 small { display: block; font-size: .8rem; font-weight: 400; color: var(--muted); margin-top: 2px; }
+  .themes { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .themes button { border: 0; background: var(--panel); color: var(--text); padding: 8px 12px; font: inherit; font-size: .85rem; cursor: pointer; }
+  .themes button + button { border-left: 1px solid var(--border); }
+  .themes button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+
+  #list { display: grid; gap: 12px; grid-template-columns: 1fr; }
+  @media (min-width: 620px) { #list { grid-template-columns: 1fr 1fr; } }
+  a.card {
+    display: flex; flex-direction: column; overflow: hidden; text-decoration: none; color: var(--text);
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--glow); transition: border-color .15s, transform .15s;
+  }
+  a.card:hover, a.card:focus-visible { border-color: var(--accent); outline: none; transform: translateY(-2px); }
+  .thumb { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; display: block; background: var(--bg); border-bottom: 1px solid var(--border); }
+  .body { padding: 14px 16px 16px; }
+  .body h2 { margin: 0 0 4px; font-size: 1.05rem; text-shadow: var(--glow); }
+  .body h2::after { content: " \2192"; color: var(--accent); }
+  .body p { margin: 0; font-size: .85rem; color: var(--muted); line-height: 1.4; }
+  .empty { color: var(--muted); }
+  footer { margin-top: 24px; color: var(--muted); font-size: .8rem; }
+</style>
+</head>
+<body>
+<canvas id="rain" aria-hidden="true"></canvas>
+<main>
+  <header>
+    <h1>vibes<small>small things made with Claude</small></h1>
+    <div class="themes" role="group" aria-label="Theme">
+      <button type="button" data-t="light" aria-pressed="false">Light</button>
+      <button type="button" data-t="dark" aria-pressed="false">Dark</button>
+      <button type="button" data-t="neon" aria-pressed="false">Neon</button>
+    </div>
+  </header>
+
+  <div id="list"></div>
+  <footer id="count"></footer>
+</main>
+
+<script>
+/* ---------- ADD NEW SITES HERE ----------
+   Copy one line, paste it below, edit the fields.
+   title, href, desc are required. thumb is optional (any image path/URL).  */
+const PROJECTS = [
+  { title: "Palette Picker",  href: "palette_picker/palette-picker.html",   desc: "Drop in an image and pull out its dominant colors.", thumb: "_thumbs/palette-picker.png" },
+  { title: "Quadrant Matrix", href: "quadrant_matrix/quadrant-matrix.html", desc: "Sort ideas into a 2x2 priority matrix.",           thumb: "_thumbs/quadrant-matrix.svg" },
+];
+
+/* ---------- render ---------- */
+const list = document.getElementById("list");
+for (const p of PROJECTS) {
+  const a = document.createElement("a");
+  a.className = "card"; a.href = p.href;
+  if (p.thumb) {
+    const img = document.createElement("img");
+    img.className = "thumb"; img.src = p.thumb; img.alt = ""; img.loading = "lazy";
+    img.onerror = () => img.remove();
+    a.append(img);
+  }
+  const body = document.createElement("div");
+  body.className = "body";
+  const h = document.createElement("h2"); h.textContent = p.title;
+  const d = document.createElement("p"); d.textContent = p.desc || "";
+  body.append(h, d); a.append(body); list.append(a);
+}
+document.getElementById("count").textContent = PROJECTS.length + (PROJECTS.length === 1 ? " project" : " projects");
+
+/* ---------- theme ---------- */
+const root = document.documentElement;
+const btns = document.querySelectorAll(".themes button");
+function setTheme(t) {
+  if (t === "light") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", t);
+  btns.forEach(b => b.setAttribute("aria-pressed", b.dataset.t === t));
+  try { localStorage.setItem("vibes-theme", t); } catch (e) {}
+  t === "neon" ? startRain() : stopRain();
+}
+btns.forEach(b => b.addEventListener("click", () => setTheme(b.dataset.t)));
+
+/* ---------- matrix rain (neon only) ---------- */
+const cv = document.getElementById("rain"), cx = cv.getContext("2d");
+let timer = null, cols = [];
+function sizeRain() { cv.width = innerWidth; cv.height = innerHeight; cols = Array(Math.ceil(cv.width / 16)).fill(0).map(() => Math.random() * cv.height / 16); }
+function tick() {
+  cx.fillStyle = "rgba(0,0,0,.08)"; cx.fillRect(0, 0, cv.width, cv.height);
+  cx.fillStyle = "#00ff41"; cx.font = "14px monospace";
+  cols.forEach((y, i) => {
+    cx.fillText(String.fromCharCode(0x30A0 + Math.random() * 96), i * 16, y * 16);
+    cols[i] = y * 16 > cv.height && Math.random() > .975 ? 0 : y + 1;
+  });
+}
+function startRain() { if (timer || matchMedia("(prefers-reduced-motion: reduce)").matches) return; sizeRain(); timer = setInterval(tick, 60); }
+function stopRain() { clearInterval(timer); timer = null; }
+addEventListener("resize", () => { if (timer) sizeRain(); });
+
+let saved = "light";
+try { saved = localStorage.getItem("vibes-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"); } catch (e) {}
+setTheme(saved);
+</script>
+</body>
+</html>

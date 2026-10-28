@@ -1,0 +1,777 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quadrant Matrix</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #faf9f6;
+    --fg: #1d1d1f;
+    --muted: #7b7b82;
+    --line: #d8d6cf;
+    --panel: #ffffff;
+    --hover: rgba(0,0,0,.06);
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a;
+      --fg: #ececf0;
+      --muted: #8f8f98;
+      --line: #36363c;
+      --panel: #222227;
+      --hover: rgba(255,255,255,.08);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    padding: 0 16px 12px;
+    overflow: hidden;
+  }
+
+  /* editable text helpers */
+  [data-bind], .t { outline: none; }
+  [data-bind]:empty::before { content: attr(data-ph); color: var(--muted); opacity: .6; }
+  [data-bind]:hover { background: var(--hover); border-radius: 6px; }
+  [data-bind]:focus { background: var(--hover); border-radius: 6px; box-shadow: 0 0 0 2px var(--line); }
+
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 0;
+  }
+  #title { font-size: 20px; font-weight: 650; padding: 2px 8px; margin-left: -8px; min-width: 120px; flex: 1 1 200px; }
+  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-size: 13px; color: var(--fg);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    padding: 5px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+  kbd {
+    font: 600 11px/1 var(--font); color: var(--muted);
+    border: 1px solid var(--line); border-radius: 5px; padding: 2px 5px; background: var(--bg);
+  }
+
+  main {
+    flex: 1; min-height: 0;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-rows: 1fr auto;
+    gap: 8px 8px;
+  }
+  .ycol {
+    display: flex; flex-direction: column; justify-content: space-between; align-items: center;
+    padding: 4px 0;
+  }
+  .ycol > * { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+  .xrow {
+    grid-column: 2;
+    display: flex; justify-content: space-between; align-items: center; gap: 8px;
+    padding: 0 4px;
+  }
+  .axis-title { font-size: 14px; font-weight: 650; padding: 2px 8px; }
+  .axis-end { font-size: 12.5px; color: var(--muted); padding: 2px 6px; }
+  .axis-title:empty, .axis-end:empty { min-width: 1.5em; min-height: 1.5em; }
+
+  #board {
+    position: relative;
+    display: grid; grid-template: 1fr 1fr / 1fr 1fr;
+    border: 1px solid var(--line); border-radius: 14px;
+    overflow: hidden; cursor: crosshair;
+    background: var(--bg);
+    min-height: 200px;
+  }
+  .quad { position: relative; }
+  .quad.tl, .quad.bl { border-right: 1px dashed var(--line); }
+  .quad.tl, .quad.tr { border-bottom: 1px dashed var(--line); }
+  .qlabel {
+    position: absolute; z-index: 1; cursor: text;
+    font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    padding: 3px 7px; margin: 7px; min-width: 2em; max-width: 70%;
+  }
+  .tl .qlabel { top: 0; left: 0; }
+  .tr .qlabel { top: 0; right: 0; text-align: right; }
+  .bl .qlabel { bottom: 0; left: 0; }
+  .br .qlabel { bottom: 0; right: 0; text-align: right; }
+
+  #hint {
+    position: absolute; inset: 0; display: grid; place-items: center; text-align: center;
+    pointer-events: none; color: var(--muted); font-size: 14px; line-height: 1.6; padding: 24px;
+  }
+  #hint[hidden] { display: none; }
+
+  .item {
+    position: absolute; z-index: 2;
+    transform: translate(-50%, -50%);
+    max-width: 190px; min-width: 44px;
+    padding: 8px 15px;
+    color: var(--fg);
+    font-size: 14px; font-weight: 500; line-height: 1.3; text-align: center;
+    cursor: grab; user-select: none; -webkit-user-select: none; touch-action: none;
+    overflow-wrap: anywhere;
+    background: transparent;
+  }
+  .item svg { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+  .item path { fill: none; stroke: var(--c); stroke-width: 2; transition: stroke-width .12s; }
+  .item .t { position: relative; display: block; min-width: 1ch; }
+  .item:hover path { stroke-width: 2.6; }
+  .item.selected path { stroke-width: 3; }
+  .item.selected svg { filter: drop-shadow(0 0 5px var(--c)); }
+  .item.dragging { cursor: grabbing; z-index: 6; }
+  .item.editing { cursor: text; user-select: text; -webkit-user-select: text; z-index: 6; }
+
+  #toast {
+    position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px);
+    background: var(--fg); color: var(--bg); padding: 9px 16px; border-radius: 10px;
+    font-size: 13px; opacity: 0; pointer-events: none; transition: .2s; z-index: 50;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+  dialog {
+    border: 1px solid var(--line); border-radius: 16px; background: var(--panel); color: var(--fg);
+    padding: 22px 26px; max-width: 480px; width: calc(100% - 32px);
+  }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog h2 { margin: 0 0 12px; font-size: 17px; }
+  dialog table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  dialog td { padding: 5px 0; vertical-align: top; }
+  dialog td:first-child { white-space: nowrap; padding-right: 18px; }
+  dialog p { color: var(--muted); font-size: 12.5px; margin: 14px 0 0; line-height: 1.5; }
+  input[type=file] { display: none; }
+
+  @media (max-width: 640px) {
+    button kbd { display: none; }
+    body { padding: 0 10px 8px; }
+    .item { font-size: 13px; max-width: 150px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div id="title" data-bind="title" data-ph="Untitled matrix" contenteditable="plaintext-only" spellcheck="false"></div>
+  <div class="toolbar">
+    <button id="b-add" title="Add item">+ Add <kbd>N</kbd></button>
+    <button id="b-undo" title="Undo">Undo <kbd>⌘Z</kbd></button>
+    <button id="b-clear" title="Clear all items">Clear <kbd>⇧C</kbd></button>
+    <button id="b-import" title="Import JSON">Import <kbd>O</kbd></button>
+    <button id="b-json" title="Export JSON">JSON <kbd>S</kbd></button>
+    <button id="b-png" title="Export PNG">PNG <kbd>P</kbd></button>
+    <button id="b-help" title="Keyboard shortcuts">? <kbd>?</kbd></button>
+  </div>
+</header>
+
+<main>
+  <div class="ycol">
+    <div class="axis-end" data-bind="axes.y.high" data-ph="High" contenteditable="plaintext-only" spellcheck="false"></div>
+    <div class="axis-title" data-bind="axes.y.title" data-ph="Y axis" contenteditable="plaintext-only" spellcheck="false"></div>
+    <div class="axis-end" data-bind="axes.y.low" data-ph="Low" contenteditable="plaintext-only" spellcheck="false"></div>
+  </div>
+
+  <div id="board">
+    <div class="quad tl"><div class="qlabel" data-bind="quads.tl" data-ph="Label" contenteditable="plaintext-only" spellcheck="false"></div></div>
+    <div class="quad tr"><div class="qlabel" data-bind="quads.tr" data-ph="Label" contenteditable="plaintext-only" spellcheck="false"></div></div>
+    <div class="quad bl"><div class="qlabel" data-bind="quads.bl" data-ph="Label" contenteditable="plaintext-only" spellcheck="false"></div></div>
+    <div class="quad br"><div class="qlabel" data-bind="quads.br" data-ph="Label" contenteditable="plaintext-only" spellcheck="false"></div></div>
+    <div id="hint">Click anywhere to add an item<br>Press <kbd>?</kbd> for keyboard shortcuts</div>
+  </div>
+
+  <div class="xrow">
+    <div class="axis-end" data-bind="axes.x.low" data-ph="Low" contenteditable="plaintext-only" spellcheck="false"></div>
+    <div class="axis-title" data-bind="axes.x.title" data-ph="X axis" contenteditable="plaintext-only" spellcheck="false"></div>
+    <div class="axis-end" data-bind="axes.x.high" data-ph="High" contenteditable="plaintext-only" spellcheck="false"></div>
+  </div>
+</main>
+
+<dialog id="help">
+  <h2>Keyboard shortcuts</h2>
+  <table>
+    <tr><td><kbd>N</kbd> / <kbd>A</kbd></td><td>Add item (at the pointer, or near the center)</td></tr>
+    <tr><td><kbd>E</kbd> / <kbd>Enter</kbd> / <kbd>F2</kbd></td><td>Edit selected item</td></tr>
+    <tr><td><kbd>Del</kbd> / <kbd>⌫</kbd></td><td>Delete selected item</td></tr>
+    <tr><td><kbd>←↑↓→</kbd></td><td>Nudge selected item (<kbd>⇧</kbd> for bigger steps)</td></tr>
+    <tr><td><kbd>Tab</kbd> / <kbd>⇧Tab</kbd></td><td>Select next / previous item</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>Deselect, or cancel an edit</td></tr>
+    <tr><td><kbd>⌘Z</kbd> / <kbd>⌘⇧Z</kbd></td><td>Undo / redo (<kbd>Ctrl</kbd> on Windows &amp; Linux)</td></tr>
+    <tr><td><kbd>⇧C</kbd></td><td>Clear all items (undoable)</td></tr>
+    <tr><td><kbd>S</kbd> / <kbd>⌘S</kbd></td><td>Export JSON</td></tr>
+    <tr><td><kbd>O</kbd> / <kbd>⌘O</kbd></td><td>Import JSON (or drop a file on the page)</td></tr>
+    <tr><td><kbd>P</kbd></td><td>Export PNG</td></tr>
+    <tr><td><kbd>?</kbd></td><td>Show / hide this help</td></tr>
+  </table>
+  <p>Click any title, axis label or corner label to rename it. Double-click an item to edit it. Everything is autosaved in this browser.</p>
+</dialog>
+
+<div id="toast"></div>
+<input type="file" id="file" accept="application/json,.json">
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const STORE = 'quadrant-matrix-v1';
+
+  const defaults = () => ({
+    title: '',
+    axes: {
+      x: { title: 'Effort',   low: 'Low', high: 'High' },
+      y: { title: 'Priority', low: 'Low', high: 'High' },
+    },
+    quads: { tl: 'Quick wins', tr: 'Major projects', bl: 'Fill-ins', br: 'Time sinks' },
+    items: [],
+  });
+
+  let state = defaults();
+  let selected = null;           // item id
+  let editing = null;            // {id, prev, orig, isNew}
+  const undoStack = [], redoStack = [];
+  let lastPos = null;            // last pointer position on the board, normalized
+
+  const board = $('#board');
+  const els = new Map();         // id -> element
+
+  /* ---------- colours (per quadrant, theme aware) ---------- */
+  const PALETTE = {
+    light: { tl: '#1f9d6b', tr: '#3472d6', bl: '#c98a0b', br: '#d0503c' },
+    dark:  { tl: '#4cc38f', tr: '#6ea0ff', bl: '#e8b04a', br: '#ff7b66' },
+  };
+  const dark = matchMedia('(prefers-color-scheme: dark)');
+  const colors = () => (dark.matches ? PALETTE.dark : PALETTE.light);
+  const quadOf = it => (it.y < 0.5 ? 't' : 'b') + (it.x < 0.5 ? 'l' : 'r');
+
+  function applyTheme() {
+    const c = colors();
+    for (const q of ['tl', 'tr', 'bl', 'br']) {
+      const quad = $('.quad.' + q);
+      quad.style.setProperty('--c', c[q]);
+      quad.style.background = `color-mix(in srgb, ${c[q]} ${dark.matches ? 9 : 7}%, transparent)`;
+      $('.qlabel', quad).style.color = c[q];
+    }
+    state.items.forEach(paintItem);
+  }
+  dark.addEventListener('change', applyTheme);
+
+  /* ---------- squircle geometry (shared by the page and the PNG export) ---------- */
+  function squirclePath(w, h, inset = 1, maxR = 16, n = 4) {
+    const x0 = inset, y0 = inset, x1 = w - inset, y1 = h - inset;
+    const r = Math.max(0, Math.min(maxR, (x1 - x0) / 2, (y1 - y0) / 2));
+    const e = 2 / n, steps = 14;
+    const centers = [[x1 - r, y0 + r], [x1 - r, y1 - r], [x0 + r, y1 - r], [x0 + r, y0 + r]];
+    const pw = v => Math.sign(v) * Math.abs(v) ** e;
+    let d = '';
+    centers.forEach(([cx, cy], k) => {
+      for (let i = 0; i <= steps; i++) {
+        const th = k * Math.PI / 2 + (i / steps) * Math.PI / 2;
+        const px = cx + r * pw(Math.sin(th)), py = cy - r * pw(Math.cos(th));
+        d += (d ? 'L' : 'M') + px.toFixed(2) + ' ' + py.toFixed(2);
+      }
+    });
+    return d + 'Z';
+  }
+
+  /* ---------- persistence / history ---------- */
+  function save() {
+    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) {}
+  }
+  function pushUndo(prevStr) {
+    undoStack.push(prevStr);
+    if (undoStack.length > 100) undoStack.shift();
+    redoStack.length = 0;
+  }
+  function mutate(fn) {
+    const prev = JSON.stringify(state);
+    fn();
+    pushUndo(prev);
+    save();
+  }
+  function restore(str) {
+    state = normalize(JSON.parse(str));
+    if (!state.items.some(i => i.id === selected)) selected = null;
+    render();
+    save();
+  }
+  function undo() {
+    if (!undoStack.length) return toast('Nothing to undo');
+    redoStack.push(JSON.stringify(state));
+    restore(undoStack.pop());
+  }
+  function redo() {
+    if (!redoStack.length) return toast('Nothing to redo');
+    undoStack.push(JSON.stringify(state));
+    restore(redoStack.pop());
+  }
+
+  /* ---------- state helpers ---------- */
+  const getPath = (o, p) => p.split('.').reduce((a, k) => a[k], o);
+  const setPath = (o, p, v) => { const ks = p.split('.'), last = ks.pop(); ks.reduce((a, k) => a[k], o)[last] = v; };
+  const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-3);
+
+  function normalize(raw) {
+    const d = defaults();
+    if (!raw || typeof raw !== 'object') throw new Error('Not a matrix file');
+    const str = (v, f) => (typeof v === 'string' ? v : f);
+    const out = {
+      title: str(raw.title, d.title),
+      axes: {
+        x: { title: str(raw.axes?.x?.title, d.axes.x.title), low: str(raw.axes?.x?.low, d.axes.x.low), high: str(raw.axes?.x?.high, d.axes.x.high) },
+        y: { title: str(raw.axes?.y?.title, d.axes.y.title), low: str(raw.axes?.y?.low, d.axes.y.low), high: str(raw.axes?.y?.high, d.axes.y.high) },
+      },
+      quads: {},
+      items: [],
+    };
+    for (const q of ['tl', 'tr', 'bl', 'br']) out.quads[q] = str(raw.quads?.[q], d.quads[q]);
+    if (!Array.isArray(raw.items)) throw new Error('Missing "items" array');
+    const seen = new Set();
+    for (const it of raw.items) {
+      if (!it || typeof it.text !== 'string') continue;
+      const x = Number(it.x), y = Number(it.y);
+      if (!isFinite(x) || !isFinite(y)) continue;
+      let id = typeof it.id === 'string' && !seen.has(it.id) ? it.id : uid();
+      seen.add(id);
+      out.items.push({ id, text: it.text, x: clamp(x, 0, 1), y: clamp(y, 0, 1) });
+    }
+    return out;
+  }
+
+  /* ---------- rendering ---------- */
+  const ro = new ResizeObserver(entries => entries.forEach(e => sizeItem(e.target)));
+
+  function sizeItem(el) {
+    const w = el.offsetWidth, h = el.offsetHeight;
+    if (!w || !h) return;
+    const svg = $('svg', el);
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    $('path', el).setAttribute('d', squirclePath(w, h));
+  }
+
+  function paintItem(it) {
+    const el = els.get(it.id);
+    if (!el) return;
+    el.style.left = (it.x * 100) + '%';
+    el.style.top = (it.y * 100) + '%';
+    el.style.setProperty('--c', colors()[quadOf(it)]);
+    el.classList.toggle('selected', it.id === selected);
+  }
+
+  function makeItem(it) {
+    const el = document.createElement('div');
+    el.className = 'item';
+    el.dataset.id = it.id;
+    el.innerHTML = '<svg><path/></svg><span class="t"></span>';
+    $('.t', el).textContent = it.text;
+    els.set(it.id, el);
+    board.appendChild(el);
+    ro.observe(el);
+    paintItem(it);
+    sizeItem(el);
+    return el;
+  }
+
+  function render() {
+    // bound texts
+    document.querySelectorAll('[data-bind]').forEach(n => {
+      if (document.activeElement === n) return;
+      const v = getPath(state, n.dataset.bind);
+      if (n.textContent !== v) n.textContent = v;
+    });
+    document.title = (state.title ? state.title + ' – ' : '') + 'Quadrant Matrix';
+    // items
+    if (!editing) {
+      els.forEach(el => { ro.unobserve(el); el.remove(); });
+      els.clear();
+      state.items.forEach(makeItem);
+    }
+    $('#hint').hidden = state.items.length > 0;
+    applyTheme();
+  }
+
+  /* ---------- bound text fields (title, axes, quadrant labels) ---------- */
+  document.querySelectorAll('[data-bind]').forEach(n => {
+    let prev = null;
+    n.addEventListener('focus', () => { prev = JSON.stringify(state); });
+    n.addEventListener('input', () => {
+      setPath(state, n.dataset.bind, n.textContent.replace(/\n/g, ' '));
+      if (n.id === 'title') document.title = (state.title ? state.title + ' – ' : '') + 'Quadrant Matrix';
+    });
+    n.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); n.blur(); }
+      e.stopPropagation();
+    });
+    n.addEventListener('paste', e => {
+      e.preventDefault();
+      document.execCommand('insertText', false, (e.clipboardData.getData('text/plain') || '').replace(/\s+/g, ' '));
+    });
+    n.addEventListener('blur', () => {
+      n.scrollLeft = 0;
+      if (prev !== null && prev !== JSON.stringify(state)) { pushUndo(prev); save(); }
+      prev = null;
+    });
+    n.addEventListener('click', e => e.stopPropagation());
+  });
+
+  /* ---------- items: add / edit / delete ---------- */
+  function addItem(x, y) {
+    const prev = JSON.stringify(state);
+    const it = { id: uid(), text: '', x: clamp(x, 0.03, 0.97), y: clamp(y, 0.03, 0.97) };
+    state.items.push(it);
+    selected = it.id;
+    $('#hint').hidden = true;
+    els.forEach((el, id) => el.classList.toggle('selected', id === selected));
+    makeItem(it);
+    startEdit(it.id, prev, true);
+  }
+
+  function startEdit(id, prev, isNew = false) {
+    if (editing) finishEdit(true);
+    const it = state.items.find(i => i.id === id), el = els.get(id);
+    if (!it || !el) return;
+    selected = id;
+    state.items.forEach(paintItem);
+    editing = { id, prev: prev ?? JSON.stringify(state), orig: it.text, isNew };
+    const t = $('.t', el);
+    el.classList.add('editing');
+    t.contentEditable = 'plaintext-only';
+    if (t.contentEditable !== 'plaintext-only') t.contentEditable = 'true';
+    t.focus();
+    const range = document.createRange();
+    range.selectNodeContents(t);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+  }
+
+  function finishEdit(commit) {
+    if (!editing) return;
+    const { id, prev, orig, isNew } = editing;
+    editing = null;
+    const it = state.items.find(i => i.id === id), el = els.get(id);
+    if (!it || !el) return;
+    const t = $('.t', el);
+    const text = commit ? t.textContent.replace(/\s+/g, ' ').trim() : orig;
+    t.contentEditable = 'false';
+    el.classList.remove('editing');
+    getSelection().removeAllRanges();
+    if (!commit && isNew || commit && !text) {            // empty → remove
+      state.items = state.items.filter(i => i.id !== id);
+      ro.unobserve(el); el.remove(); els.delete(id);
+      if (selected === id) selected = null;
+      if (!isNew) pushUndo(prev);
+    } else {
+      it.text = text;
+      t.textContent = text;
+      if (isNew || text !== orig) pushUndo(prev);
+    }
+    save();
+    $('#hint').hidden = state.items.length > 0;
+  }
+
+  function deleteItem(id) {
+    if (!id) return;
+    mutate(() => { state.items = state.items.filter(i => i.id !== id); });
+    selected = null;
+    render();
+  }
+
+  function select(id) {
+    selected = id;
+    state.items.forEach(paintItem);
+  }
+
+  /* ---------- pointer interaction ---------- */
+  board.addEventListener('pointermove', e => {
+    const r = board.getBoundingClientRect();
+    lastPos = { x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height };
+  });
+  board.addEventListener('pointerleave', () => { lastPos = null; });
+
+  board.addEventListener('click', e => {
+    if (e.target.closest('.item, .qlabel')) return;
+    if (editing) { finishEdit(true); return; }              // first click just commits the edit
+    const r = board.getBoundingClientRect();
+    addItem((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+  });
+
+  board.addEventListener('pointerdown', e => {
+    const el = e.target.closest('.item');
+    if (!el || el.classList.contains('editing')) return;
+    e.preventDefault();
+    if (editing) finishEdit(true);
+    const id = el.dataset.id, it = state.items.find(i => i.id === id);
+    select(id);
+    const r = board.getBoundingClientRect();
+    const start = { cx: e.clientX, cy: e.clientY, x: it.x, y: it.y, prev: JSON.stringify(state), moved: false };
+    el.setPointerCapture(e.pointerId);
+    el.classList.add('dragging');
+
+    const move = ev => {
+      const dx = ev.clientX - start.cx, dy = ev.clientY - start.cy;
+      if (!start.moved && Math.hypot(dx, dy) < 3) return;
+      start.moved = true;
+      const hw = el.offsetWidth / 2, hh = el.offsetHeight / 2;
+      const px = clamp(start.x * r.width + dx, Math.min(hw, r.width / 2), Math.max(r.width - hw, r.width / 2));
+      const py = clamp(start.y * r.height + dy, Math.min(hh, r.height / 2), Math.max(r.height - hh, r.height / 2));
+      it.x = px / r.width; it.y = py / r.height;
+      paintItem(it);
+    };
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+      el.classList.remove('dragging');
+      if (start.moved) { pushUndo(start.prev); save(); }
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  });
+
+  board.addEventListener('click', e => { if (e.target.closest('.item')) e.stopPropagation(); }, true);
+  board.addEventListener('dblclick', e => {
+    const el = e.target.closest('.item');
+    if (el) startEdit(el.dataset.id);
+  });
+
+  board.addEventListener('keydown', e => {
+    if (!editing || !e.target.closest('.item')) return;
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); finishEdit(true); }
+    else if (e.key === 'Escape') { e.preventDefault(); finishEdit(false); }
+    e.stopPropagation();
+  });
+  board.addEventListener('focusout', e => {
+    if (editing && e.target.closest('.item')) setTimeout(() => editing && finishEdit(true), 0);
+  });
+  board.addEventListener('paste', e => {
+    if (!e.target.closest('.item')) return;
+    e.preventDefault();
+    document.execCommand('insertText', false, (e.clipboardData.getData('text/plain') || '').replace(/\s+/g, ' '));
+  });
+
+  /* ---------- import / export ---------- */
+  const slug = () => (state.title || 'quadrant-matrix').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'quadrant-matrix';
+  function download(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  function exportJSON() {
+    finishEdit(true);
+    const data = { app: 'quadrant-matrix', version: 1, coords: 'x: 0 = left … 1 = right; y: 0 = top … 1 = bottom', ...state };
+    download(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), slug() + '.json');
+    toast('Exported ' + slug() + '.json');
+  }
+
+  function importText(text) {
+    let next;
+    try { next = normalize(JSON.parse(text)); }
+    catch (err) { return toast('Import failed: ' + err.message); }
+    finishEdit(true);
+    mutate(() => { state = next; });
+    selected = null;
+    render();
+    toast(`Imported ${state.items.length} item${state.items.length === 1 ? '' : 's'}`);
+  }
+  const fileInput = $('#file');
+  const readFile = f => f && f.text().then(importText);
+  fileInput.addEventListener('change', () => { readFile(fileInput.files[0]); fileInput.value = ''; });
+  addEventListener('dragover', e => e.preventDefault());
+  addEventListener('drop', e => { e.preventDefault(); readFile(e.dataTransfer.files[0]); });
+
+  function wrapLines(ctx, text, maxW) {
+    const lines = []; let line = '';
+    const push = () => { if (line) lines.push(line); line = ''; };
+    for (const word of text.split(' ')) {
+      const test = line ? line + ' ' + word : word;
+      if (ctx.measureText(test).width <= maxW) { line = test; continue; }
+      push();
+      if (ctx.measureText(word).width <= maxW) { line = word; continue; }
+      for (const ch of word) {                              // very long word: break by character
+        if (ctx.measureText(line + ch).width > maxW) push();
+        line += ch;
+      }
+    }
+    push();
+    return lines.length ? lines : [''];
+  }
+
+  function exportPNG() {
+    finishEdit(true);
+    const cs = getComputedStyle(document.documentElement);
+    const v = n => cs.getPropertyValue(n).trim();
+    const font = getComputedStyle(document.body).fontFamily;
+    const bw = board.clientWidth, bh = board.clientHeight;
+    const L = 88, T = state.title ? 64 : 28, R = 28, B = 80, S = 2;
+    const W = bw + L + R, H = bh + T + B;
+    const cv = document.createElement('canvas');
+    cv.width = W * S; cv.height = H * S;
+    const ctx = cv.getContext('2d');
+    ctx.scale(S, S);
+    ctx.fillStyle = v('--bg'); ctx.fillRect(0, 0, W, H);
+    ctx.textBaseline = 'middle';
+    const col = colors();
+
+    if (state.title) {
+      ctx.fillStyle = v('--fg'); ctx.font = `650 22px ${font}`; ctx.textAlign = 'left';
+      ctx.fillText(state.title, L, 32);
+    }
+
+    // board
+    ctx.save();
+    ctx.translate(L, T);
+    ctx.beginPath(); ctx.roundRect(0, 0, bw, bh, 14); ctx.clip();
+    const pos = { tl: [0, 0], tr: [bw / 2, 0], bl: [0, bh / 2], br: [bw / 2, bh / 2] };
+    for (const q in pos) {
+      ctx.globalAlpha = dark.matches ? 0.09 : 0.07;
+      ctx.fillStyle = col[q]; ctx.fillRect(pos[q][0], pos[q][1], bw / 2, bh / 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = v('--line'); ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(bw / 2, 0); ctx.lineTo(bw / 2, bh); ctx.moveTo(0, bh / 2); ctx.lineTo(bw, bh / 2); ctx.stroke();
+    ctx.setLineDash([]);
+    // quadrant labels
+    ctx.font = `700 11px ${font}`;
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0.88px';
+    const lab = (q, x, y, align) => { ctx.fillStyle = col[q]; ctx.textAlign = align; ctx.fillText(state.quads[q].toUpperCase(), x, y); };
+    lab('tl', 14, 22, 'left'); lab('tr', bw - 14, 22, 'right');
+    lab('bl', 14, bh - 22, 'left'); lab('br', bw - 14, bh - 22, 'right');
+    if ('letterSpacing' in ctx) ctx.letterSpacing = '0px';
+    // items
+    const br = board.getBoundingClientRect();
+    ctx.font = `500 14px ${font}`; ctx.textAlign = 'center';
+    for (const it of state.items) {
+      const el = els.get(it.id); if (!el) continue;
+      const w = el.offsetWidth, h = el.offsetHeight;
+      const r = el.getBoundingClientRect();
+      const cx = r.left - br.left + r.width / 2, cy = r.top - br.top + r.height / 2;
+      ctx.save();
+      ctx.translate(cx - w / 2, cy - h / 2);
+      ctx.strokeStyle = col[quadOf(it)]; ctx.lineWidth = 2;
+      ctx.stroke(new Path2D(squirclePath(w, h)));
+      ctx.restore();
+      ctx.fillStyle = v('--fg');
+      const lines = wrapLines(ctx, it.text, w - 30), lh = 14 * 1.3;
+      lines.forEach((ln, i) => ctx.fillText(ln, cx, cy - (lines.length * lh) / 2 + lh / 2 + i * lh));
+    }
+    ctx.restore();
+    ctx.strokeStyle = v('--line'); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.roundRect(L + .5, T + .5, bw - 1, bh - 1, 14); ctx.stroke();
+
+    // axes
+    const ax = state.axes;
+    ctx.save();                                              // y axis (reads bottom → top)
+    ctx.translate(L - 24, T + bh); ctx.rotate(-Math.PI / 2);
+    ctx.font = `400 12.5px ${font}`; ctx.fillStyle = v('--muted');
+    ctx.textAlign = 'left'; ctx.fillText(ax.y.low, 4, 0);
+    ctx.textAlign = 'right'; ctx.fillText(ax.y.high, bh - 4, 0);
+    ctx.font = `650 14px ${font}`; ctx.fillStyle = v('--fg');
+    ctx.textAlign = 'center'; ctx.fillText(ax.y.title, bh / 2, 0);
+    ctx.restore();
+    const ay = T + bh + 28;                                  // x axis
+    ctx.font = `400 12.5px ${font}`; ctx.fillStyle = v('--muted');
+    ctx.textAlign = 'left'; ctx.fillText(ax.x.low, L + 4, ay);
+    ctx.textAlign = 'right'; ctx.fillText(ax.x.high, L + bw - 4, ay);
+    ctx.font = `650 14px ${font}`; ctx.fillStyle = v('--fg');
+    ctx.textAlign = 'center'; ctx.fillText(ax.x.title, L + bw / 2, ay);
+
+    cv.toBlob(b => { download(b, slug() + '.png'); toast('Exported ' + slug() + '.png'); }, 'image/png');
+  }
+
+  /* ---------- actions ---------- */
+  function addNear() {
+    const p = lastPos || { x: 0.5 + (Math.random() - .5) * .3, y: 0.5 + (Math.random() - .5) * .3 };
+    addItem(p.x, p.y);
+  }
+  function clearAll() {
+    finishEdit(true);
+    if (!state.items.length) return toast('Already empty');
+    mutate(() => { state.items = []; });
+    selected = null;
+    render();
+    toast('Cleared — ⌘Z / Ctrl+Z to undo');
+  }
+
+  $('#b-add').onclick = e => { e.stopPropagation(); addItem(0.5 + (Math.random() - .5) * .3, 0.5 + (Math.random() - .5) * .3); };
+  $('#b-undo').onclick = undo;
+  $('#b-clear').onclick = clearAll;
+  $('#b-import').onclick = () => fileInput.click();
+  $('#b-json').onclick = exportJSON;
+  $('#b-png').onclick = exportPNG;
+  const help = $('#help');
+  $('#b-help').onclick = () => help.showModal();
+  help.addEventListener('click', e => { if (e.target === help) help.close(); });
+
+  /* ---------- keyboard ---------- */
+  addEventListener('keydown', e => {
+    if (help.open) { if (e.key === '?') help.close(); return; }
+    if (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+
+    if (mod) {
+      if (k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); }
+      else if (k === 'y') { e.preventDefault(); redo(); }
+      else if (k === 's' && !e.shiftKey) { e.preventDefault(); exportJSON(); }
+      else if (k === 'o') { e.preventDefault(); fileInput.click(); }
+      return;
+    }
+    if (e.altKey) return;
+
+    const handled = (() => {
+      if (e.key === '?') { help.showModal(); return true; }
+      if (k === 'n' || k === 'a') { addNear(); return true; }
+      if (k === 'c' && e.shiftKey) { clearAll(); return true; }
+      if (k === 's') { exportJSON(); return true; }
+      if (k === 'o') { fileInput.click(); return true; }
+      if (k === 'p') { exportPNG(); return true; }
+      if (e.key === 'Escape') { select(null); return true; }
+      if (e.key === 'Tab' && state.items.length) {
+        const ids = state.items.map(i => i.id), i = ids.indexOf(selected);
+        select(ids[(i + (e.shiftKey ? -1 : 1) + ids.length) % ids.length]);
+        if (i === -1) select(e.shiftKey ? ids[ids.length - 1] : ids[0]);
+        return true;
+      }
+      if (!selected) return false;
+      if (k === 'e' || e.key === 'Enter' || e.key === 'F2') { startEdit(selected); return true; }
+      if (e.key === 'Delete' || e.key === 'Backspace') { deleteItem(selected); return true; }
+      const dir = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+      if (dir) {
+        const it = state.items.find(i => i.id === selected), step = e.shiftKey ? 0.05 : 0.01;
+        const prev = JSON.stringify(state);
+        it.x = clamp(it.x + dir[0] * step, 0, 1); it.y = clamp(it.y + dir[1] * step, 0, 1);
+        pushUndo(prev); save(); paintItem(it);
+        return true;
+      }
+      return false;
+    })();
+    if (handled) e.preventDefault();
+  });
+
+  /* ---------- toast ---------- */
+  let toastTimer;
+  function toast(msg) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  /* ---------- boot ---------- */
+  try {
+    const saved = localStorage.getItem(STORE);
+    if (saved) state = normalize(JSON.parse(saved));
+  } catch (e) {}
+  render();
+})();
+</script>
+</body>
+</html>

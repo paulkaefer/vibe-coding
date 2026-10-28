@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Little Timers</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #fff; --text: #222; --muted: #8a877f; --line: #e6e3dc;
+    --accent: #2f6f5e; --done: #c2410c; --done-bg: #fff3ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --card: #20201e; --text: #ecebe6; --muted: #8d8a82; --line: #34332f;
+      --accent: #6fbfa8; --done: #fb923c; --done-bg: #2b2018;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  main { max-width: 520px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 15px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 16px; }
+
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input {
+    font: inherit; color: inherit; background: var(--card);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; min-width: 0;
+  }
+  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  #label { flex: 1 1 160px; }
+  #dur { flex: 0 1 110px; }
+  button {
+    font: inherit; color: inherit; background: none; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+  }
+  button:hover { border-color: var(--muted); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 9px 16px; }
+  .chips { display: flex; gap: 6px; margin: 10px 0 24px; flex-wrap: wrap; }
+  .chips button { font-size: 13px; padding: 3px 10px; border-radius: 99px; color: var(--muted); }
+  .err { color: var(--done); font-size: 13px; min-height: 18px; margin: -18px 0 8px; }
+
+  .timer {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 14px 16px 12px; margin-bottom: 12px; position: relative; overflow: hidden;
+  }
+  .timer.done { background: var(--done-bg); border-color: var(--done); }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .name {
+    font-weight: 600; border: none; background: none; padding: 2px 4px; margin-left: -4px;
+    flex: 1; border-radius: 4px;
+  }
+  .name:hover { background: var(--bg); }
+  .grip {
+    cursor: grab; color: var(--muted); user-select: none; touch-action: none;
+    padding: 0 8px 0 0; letter-spacing: -2px; font-size: 16px;
+  }
+  .timer.dragging { opacity: .85; box-shadow: 0 6px 20px rgba(0,0,0,.2); border-color: var(--accent); }
+  .timer.dragging .grip { cursor: grabbing; }
+  .x { border: none; color: var(--muted); padding: 0 4px; font-size: 20px; line-height: 1; }
+  .time { font-size: 44px; font-weight: 300; font-variant-numeric: tabular-nums; letter-spacing: -.02em; margin: 2px 0; }
+  .timer.paused .time { opacity: .45; }
+  .timer.done .time { color: var(--done); }
+  .meta { color: var(--muted); font-size: 13px; }
+  .bar { height: 3px; background: var(--line); border-radius: 2px; margin: 10px 0 12px; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+  .timer.done .bar i { background: var(--done); }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btns button { font-size: 13px; }
+  .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Little Timers</h1>
+  <form id="add" autocomplete="off">
+    <input id="label" placeholder="What for? (e.g. Tea)" maxlength="60">
+    <input id="dur" placeholder="3m, 1h, 1:30">
+    <button class="primary">Start</button>
+  </form>
+  <div class="chips" id="chips"></div>
+  <div class="err" id="err"></div>
+  <div id="list"></div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const KEY = 'little-timers-v1';
+let timers = [];
+try { timers = JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(timers)); } catch (e) {} };
+
+// "3m", "1h 30m", "90s", "1:30" (h:mm), "1:30:00", bare number = minutes
+function parseDur(str) {
+  str = str.trim().toLowerCase();
+  if (!str) return null;
+  if (/^\d+:\d+(:\d+)?$/.test(str)) {
+    const p = str.split(':').map(Number);
+    return (p.length === 3 ? p[0] * 3600 + p[1] * 60 + p[2] : p[0] * 3600 + p[1] * 60) * 1000;
+  }
+  if (/^\d+(\.\d+)?$/.test(str)) return parseFloat(str) * 60000;
+  let ms = 0, rest = str;
+  const re = /(\d+(?:\.\d+)?)\s*(h|hr|hrs|hours?|m|min|mins|minutes?|s|sec|secs|seconds?)\b/g;
+  let m;
+  while ((m = re.exec(str))) {
+    const n = parseFloat(m[1]), u = m[2][0];
+    ms += n * (u === 'h' ? 3600000 : u === 'm' ? 60000 : 1000);
+    rest = rest.replace(m[0], '');
+  }
+  return ms > 0 && !rest.replace(/[\s,and]/g, '') ? ms : null;
+}
+
+function fmt(ms) {
+  const s = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  const p = n => String(n).padStart(2, '0');
+  return h ? `${h}:${p(m)}:${p(sec)}` : `${m}:${p(sec)}`;
+}
+function fmtShort(ms) {
+  const m = Math.round(ms / 60000), h = Math.floor(m / 60);
+  if (ms < 60000) return Math.round(ms / 1000) + 's';
+  return (h ? h + 'h ' : '') + (m % 60 ? m % 60 + 'm' : '') || '0m';
+}
+const clock = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const remaining = t => t.endsAt ? t.endsAt - Date.now() : t.left;
+
+function add(label, ms) {
+  // Insert in ascending order of time remaining (after any equal ones)
+  const t = { id: Date.now() + Math.random(), label, total: ms, endsAt: Date.now() + ms, left: ms, done: false };
+  let i = timers.findIndex(x => remaining(x) > ms);
+  if (i < 0) i = timers.length;
+  timers.splice(i, 0, t);
+  save(); render();
+  if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+}
+
+// ---- alerts ----
+// Browsers block audio until a user gesture, so create/resume the context on first interaction.
+let actx;
+function unlockAudio() {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+  } catch (e) {}
+}
+['pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, unlockAudio, { passive: true }));
+
+function beep() {
+  unlockAudio();
+  if (!actx) return;
+  const go = () => [0, .3, .6, 1.4, 1.7, 2.0].forEach(d => {
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'triangle'; o.frequency.value = 988;
+    o.connect(g); g.connect(actx.destination);
+    const t = actx.currentTime + d;
+    g.gain.setValueAtTime(.0001, t);
+    g.gain.exponentialRampToValueAtTime(.6, t + .02);
+    g.gain.exponentialRampToValueAtTime(.0001, t + .22);
+    o.start(t); o.stop(t + .25);
+  });
+  actx.state === 'running' ? go() : actx.resume().then(go).catch(() => {});
+}
+function alertDone(t) {
+  beep();
+  if ('Notification' in window && Notification.permission === 'granted')
+    new Notification(t.label || 'Timer', { body: `${fmtShort(t.total)} timer finished` });
+}
+
+// ---- rendering ----
+const list = $('#list');
+function render() {
+  list.innerHTML = '';
+  if (!timers.length) list.innerHTML = '<div class="empty">No timers yet. Add one above.</div>';
+  for (const t of timers) {
+    const el = document.createElement('div');
+    el.className = 'timer';
+    el.dataset.id = t.id;
+    el.innerHTML = `
+      <div class="top">
+        <span class="grip" title="Drag to reorder">⋮⋮</span>
+        <input class="name" value="" placeholder="Untitled" maxlength="60">
+        <button class="x" data-a="del" title="Delete">×</button>
+      </div>
+      <div class="time"></div>
+      <div class="meta"></div>
+      <div class="bar"><i></i></div>
+      <div class="btns">
+        <button data-a="toggle"></button>
+        <button data-a="-60000">−1m</button>
+        <button data-a="60000">+1m</button>
+        <button data-a="600000">+10m</button>
+        <button data-a="restart">Restart</button>
+      </div>`;
+    el.querySelector('.name').value = t.label;
+    list.appendChild(el);
+  }
+  tick();
+}
+
+function tick() {
+  for (const t of timers) {
+    if (t.endsAt && !t.done && t.endsAt <= Date.now()) {
+      t.done = true; t.endsAt = null; t.left = 0; save(); alertDone(t);
+    }
+    const el = list.querySelector(`[data-id="${t.id}"]`);
+    if (!el) continue;
+    const r = remaining(t), running = !!t.endsAt;
+    el.classList.toggle('done', t.done);
+    el.classList.toggle('paused', !running && !t.done);
+    el.querySelector('.time').textContent = t.done ? 'Done' : fmt(r);
+    el.querySelector('.meta').textContent = t.done ? `of ${fmtShort(t.total)}`
+      : running ? `of ${fmtShort(t.total)} · rings at ${clock(t.endsAt)}` : `of ${fmtShort(t.total)} · paused`;
+    el.querySelector('.bar i').style.width = (t.done ? 100 : Math.min(100, (1 - r / t.total) * 100)) + '%';
+    const tg = el.querySelector('[data-a=toggle]');
+    tg.textContent = t.done ? 'Dismiss' : running ? 'Pause' : 'Resume';
+  }
+  const next = timers.filter(t => t.endsAt).map(t => t.endsAt).sort((a, b) => a - b)[0];
+  document.title = next ? `${fmt(next - Date.now())} · Little Timers` : 'Little Timers';
+}
+setInterval(tick, 250);
+
+// ---- events ----
+list.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const id = b.closest('.timer').dataset.id;
+  const t = timers.find(x => String(x.id) === id); if (!t) return;
+  const a = b.dataset.a;
+  if (a === 'del') timers = timers.filter(x => x !== t);
+  else if (a === 'toggle') {
+    if (t.done) timers = timers.filter(x => x !== t);
+    else if (t.endsAt) { t.left = t.endsAt - Date.now(); t.endsAt = null; }
+    else t.endsAt = Date.now() + t.left;
+  } else if (a === 'restart') {
+    t.done = false; t.left = t.total; t.endsAt = Date.now() + t.total;
+  } else {
+    const d = +a, r = remaining(t) + d;
+    if (r <= 0) return;
+    t.total = Math.max(1000, t.total + d);
+    if (t.done) { t.done = false; t.total = d; }
+    if (t.endsAt) t.endsAt += d; else t.left = Math.max(1000, t.left + d);
+  }
+  save(); render();
+});
+list.addEventListener('input', e => {
+  if (!e.target.classList.contains('name')) return;
+  const t = timers.find(x => String(x.id) === e.target.closest('.timer').dataset.id);
+  if (t) { t.label = e.target.value; save(); }
+});
+
+// ---- drag to reorder (grab the ⋮⋮ handle) ----
+let drag = null;
+list.addEventListener('pointerdown', e => {
+  const grip = e.target.closest('.grip'); if (!grip) return;
+  drag = grip.closest('.timer');
+  drag.classList.add('dragging');
+  grip.setPointerCapture(e.pointerId);
+  e.preventDefault();
+});
+list.addEventListener('pointermove', e => {
+  if (!drag) return;
+  for (const el of list.querySelectorAll('.timer:not(.dragging)')) {
+    const r = el.getBoundingClientRect();
+    if (e.clientY < r.top || e.clientY > r.bottom) continue;
+    const before = e.clientY < r.top + r.height / 2;
+    if (before && el.previousElementSibling !== drag) list.insertBefore(drag, el);
+    else if (!before && el.nextElementSibling !== drag) el.after(drag);
+    break;
+  }
+});
+function endDrag() {
+  if (!drag) return;
+  drag.classList.remove('dragging'); drag = null;
+  const order = [...list.querySelectorAll('.timer')].map(el => el.dataset.id);
+  timers.sort((a, b) => order.indexOf(String(a.id)) - order.indexOf(String(b.id)));
+  save();
+}
+list.addEventListener('pointerup', endDrag);
+list.addEventListener('pointercancel', endDrag);
+
+$('#add').addEventListener('submit', e => {
+  e.preventDefault();
+  const ms = parseDur($('#dur').value);
+  if (!ms) { $('#err').textContent = 'Try something like 3m, 1h, 2h 30m, or 1:30.'; $('#dur').focus(); return; }
+  $('#err').textContent = '';
+  add($('#label').value.trim(), ms);
+  $('#label').value = ''; $('#dur').value = '';
+  $('#label').focus();
+});
+
+const presets = ['3m', '5m', '10m', '25m', '1h', '2h'];
+$('#chips').innerHTML = presets.map(p => `<button type="button">${p}</button>`).join('');
+$('#chips').addEventListener('click', e => {
+  if (e.target.tagName !== 'BUTTON') return;
+  add($('#label').value.trim(), parseDur(e.target.textContent));
+  $('#label').value = ''; $('#err').textContent = '';
+});
+
+render();
+</script>
+</body>
+</html>
