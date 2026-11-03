@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minecraft Terrain</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.1/p5.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0e1116;
+    --fg: #e8e6df;
+    --muted: #9a9790;
+    --line: #2a2f38;
+    --panel: #171b22;
+    --hover: rgba(255,255,255,.08);
+    --accent: #5aa34a;
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+    z-index: 2;
+  }
+  #title {
+    font-size: 17px; font-weight: 700; margin-right: auto;
+    letter-spacing: .3px; display: flex; align-items: center; gap: 9px;
+  }
+  #title .cube { width: 16px; height: 16px; border-radius: 2px;
+    background: linear-gradient(135deg, #7bbf5e 0 50%, #6a4a2b 50% 100%);
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+  button {
+    font: inherit; font-size: 13px; color: var(--fg);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+    padding: 5px 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+
+  .field { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+  .field input[type="range"] { width: 96px; accent-color: var(--accent); }
+  .field select {
+    font: inherit; font-size: 13px; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 4px 7px; cursor: pointer;
+  }
+  .field .val { color: var(--fg); min-width: 26px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  #stage { flex: 1; position: relative; min-height: 0; }
+  #stage canvas { display: block; }
+
+  .hint {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: var(--muted); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 5px 12px;
+    pointer-events: none; opacity: .9; text-align: center; white-space: nowrap;
+  }
+  #stats {
+    position: absolute; top: 10px; left: 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 9px; pointer-events: none; opacity: .9; line-height: 1.5;
+  }
+  #stats b { color: var(--fg); font-weight: 600; }
+</style>
+</head>
+<body>
+  <header>
+    <div id="title"><span class="cube"></span>Minecraft Terrain</div>
+    <div class="toolbar">
+      <label class="field">
+        Biome
+        <select id="biome">
+          <option value="plains">Plains</option>
+          <option value="desert">Desert</option>
+          <option value="snow">Snowy Tundra</option>
+          <option value="mountains">Extreme Hills</option>
+          <option value="mushroom">Mushroom Fields</option>
+        </select>
+      </label>
+      <label class="field">
+        Size
+        <input id="size" type="range" min="16" max="56" step="4" value="36">
+        <span class="val" id="sizeVal">36</span>
+      </label>
+      <label class="field">
+        Hills
+        <input id="amp" type="range" min="20" max="100" value="55">
+        <span class="val" id="ampVal">55</span>
+      </label>
+      <label class="field">
+        Sea
+        <input id="sea" type="range" min="0" max="100" value="38">
+        <span class="val" id="seaVal">38</span>
+      </label>
+      <button id="trees" aria-pressed="true">Trees: on</button>
+      <button id="spin" aria-pressed="true">Spin: on</button>
+      <button id="regen">New Seed</button>
+    </div>
+  </header>
+
+  <div id="stage">
+    <div id="stats"></div>
+    <div class="hint">Drag to orbit &middot; scroll to zoom &middot; arrow keys / WASD to pan</div>
+  </div>
+
+<script>
+/*
+ * Minecraft-themed 3D terrain built with p5.js (WEBGL).
+ *
+ * Heightmap comes from layered 3D Perlin noise (fractal / fBm). The third
+ * noise dimension is driven by the seed so "New Seed" walks to a fresh slice
+ * of the noise field without reseeding p5's generator mid-draw.
+ *
+ * Performance notes:
+ *  - The whole terrain is baked into a single p5.Geometry once per regen, so
+ *    draw() issues one GPU call for the land instead of thousands of box()es.
+ *  - Only block tops and faces exposed to a shorter/absent neighbor are
+ *    emitted (hidden-face culling), which cuts triangle count dramatically.
+ *  - Water is one translucent quad; trees are instanced from a small template.
+ */
+const sketch = (p) => {
+  // ---- Minecraft-accurate block palette (approx. of in-game textures) ----
+  const BLK = {
+    grassTop:  [124, 176, 85],
+    grassSide: [122, 93, 54],   // dirt with a thin grass lip drawn on top
+    dirt:      [134, 96, 67],
+    stone:     [130, 130, 132],
+    sand:      [219, 207, 163],
+    sandstone: [214, 198, 150],
+    snow:      [245, 248, 250],
+    snowDirt:  [120, 112, 108],
+    gravel:    [141, 137, 135],
+    water:     [63, 118, 228],
+    bedrock:   [63, 63, 66],
+    mycelium:  [111, 99, 110],
+    woodTop:   [160, 128, 80],
+    log:       [102, 81, 49],
+    leaves:    [60, 140, 55],
+    snowLeaves:[198, 214, 206],
+    cactus:    [80, 134, 66],
+    mushStem:  [214, 207, 194],
+    mushCap:   [178, 56, 48],
+  };
+
+  // Per-biome surface/feature ruleset. Keeps the biome switch data-driven.
+  const BIOMES = {
+    plains:    { top: "grass", filler: "dirt", tree: "oak",   treeChance: 0.045, rough: 1.0,  tint: [130,180,90] },
+    desert:    { top: "sand",  filler: "sandstone", tree: "cactus", treeChance: 0.02, rough: 0.7, tint: [222,206,150] },
+    snow:      { top: "snow",  filler: "dirt", tree: "spruce", treeChance: 0.03, rough: 0.9, tint: [220,228,232] },
+    mountains: { top: "stone", filler: "stone", tree: "spruce", treeChance: 0.02, rough: 1.9, tint: [150,152,155] },
+    mushroom:  { top: "myc",   filler: "dirt", tree: "mushroom", treeChance: 0.05, rough: 0.8, tint: [120,110,120] },
+  };
+
+  const BS = 20;            // block size in world units
+  let cols = 36;            // grid is cols x cols blocks
+  let amp = 55;             // vertical amplitude (hill height)
+  let seaLevel01 = 0.38;    // sea level as a fraction of amplitude
+  let biomeKey = "plains";
+  let showTrees = true;
+  let spinning = true;
+  let seed = 1;
+
+  let land = null;          // baked p5.Geometry for terrain
+  let trees = [];           // {x, z, groundY, type}
+  let heights = [];         // integer block heights per column
+  let triCount = 0;
+  let camYaw = -0.6, camPitch = 0.62, camDist = 820;
+  let panX = 0, panZ = 0;
+  let autoYaw = 0;
+
+  // ---------- Noise-driven height field ----------
+  // Fractal Brownian motion: sum octaves of 3D noise at rising frequency.
+  function fbm(x, z, w) {
+    let value = 0, amplitude = 1, freq = 1, norm = 0;
+    for (let o = 0; o < 4; o++) {
+      value += amplitude * p.noise(x * freq, z * freq, w);
+      norm += amplitude;
+      amplitude *= 0.5;
+      freq *= 2.0;
+    }
+    return value / norm;
+  }
+
+  function buildHeights() {
+    const b = BIOMES[biomeKey];
+    const w = seed * 13.37;            // seed selects a noise "slice"
+    const scale = 0.055;               // base feature frequency
+    heights = [];
+    let maxH = Math.max(2, Math.round(amp / BS));
+    for (let i = 0; i < cols; i++) {
+      heights[i] = [];
+      for (let j = 0; j < cols; j++) {
+        let n = fbm(i * scale, j * scale, w);
+        // Mountains get a ridged, steeper profile; others stay gentler.
+        n = Math.pow(n, b.rough > 1.3 ? 1.9 : 1.15);
+        let h = 1 + Math.round(n * maxH * (b.rough));
+        heights[i][j] = Math.max(1, h);
+      }
+    }
+    return maxH;
+  }
+
+  // ---------- Geometry baking ----------
+  function colAt(i, j) {
+    if (i < 0 || j < 0 || i >= cols || j >= cols) return 0;
+    return heights[i][j];
+  }
+
+  function surfaceBlock(h, y, maxH, seaY) {
+    const b = BIOMES[biomeKey];
+    // Underwater floors read as sand/gravel like real shorelines.
+    if (h <= seaY && y === h) return b.top === "sand" ? BLK.sand : BLK.gravel;
+    if (y === h) {
+      if (b.top === "grass") return BLK.grassTop;
+      if (b.top === "sand")  return BLK.sand;
+      if (b.top === "snow")  return BLK.snow;
+      if (b.top === "myc")   return BLK.mycelium;
+      if (b.top === "stone") return y > maxH * 0.72 ? BLK.snow : BLK.stone; // snow caps
+    }
+    if (y >= h - 2) { // shallow filler layer
+      if (b.filler === "dirt")      return BLK.dirt;
+      if (b.filler === "sandstone") return BLK.sandstone;
+      return BLK.stone;
+    }
+    if (y === 0) return BLK.bedrock;
+    return BLK.stone;
+  }
+
+  // Push one axis-aligned quad (4 verts, 2 tris) into the geometry buffers.
+  function quad(g, a, b, c, d, col, shade) {
+    const base = g.vertices.length;
+    g.vertices.push(a, b, c, d);
+    const r = col[0] * shade, gr = col[1] * shade, bl = col[2] * shade;
+    for (let k = 0; k < 4; k++) g.vertexColors.push(r / 255, gr / 255, bl / 255, 1);
+    g.faces.push([base, base + 1, base + 2], [base, base + 2, base + 3]);
+  }
+
+  function bakeTerrain() {
+    const maxH = buildHeights();
+    const seaY = Math.round(seaLevel01 * maxH);
+    const g = new p5.Geometry();
+    g.gid = "mc-terrain-" + seed + "-" + biomeKey + "-" + cols + "-" + amp + "-" + Math.round(seaLevel01 * 100);
+    g.vertexColors = [];
+
+    const off = (cols * BS) / 2; // center the grid on the origin
+    // Directional shading per face, Minecraft-style ambient occlusion-ish.
+    const SH = { top: 1.0, nz: 0.86, pz: 0.7, nx: 0.78, px: 0.62 };
+
+    trees = [];
+    const b = BIOMES[biomeKey];
+
+    for (let i = 0; i < cols; i++) {
+      for (let j = 0; j < cols; j++) {
+        const h = heights[i][j];
+        const x0 = i * BS - off, x1 = x0 + BS;
+        const z0 = j * BS - off, z1 = z0 + BS;
+
+        // Top face of the column's highest block.
+        const topY = -h * BS;
+        const topCol = surfaceBlock(h, h, maxH, seaY);
+        quad(g,
+          p.createVector(x0, topY, z0), p.createVector(x1, topY, z0),
+          p.createVector(x1, topY, z1), p.createVector(x0, topY, z1),
+          topCol, SH.top);
+
+        // Side faces: only emit the exposed portion toward a shorter neighbor.
+        const neighbors = [
+          { nh: colAt(i, j - 1), dir: "nz" },
+          { nh: colAt(i, j + 1), dir: "pz" },
+          { nh: colAt(i - 1, j), dir: "nx" },
+          { nh: colAt(i + 1, j), dir: "px" },
+        ];
+        for (const nb of neighbors) {
+          const from = nb.nh;          // exposed from neighbor top up to our top
+          if (from >= h) continue;     // fully hidden
+          for (let y = h; y > from; y--) {
+            const yc = surfaceBlock(h, y, maxH, seaY);
+            const ya = -y * BS, yb = -(y - 1) * BS;
+            // Grass blocks show a dirt side with a green top lip; approximate
+            // by using the grass-side dirt tone for the band below the top.
+            const sideCol = (topCol === BLK.grassTop && y === h) ? BLK.grassSide : yc;
+            if (nb.dir === "nz") quad(g, p.createVector(x0,ya,z0),p.createVector(x1,ya,z0),p.createVector(x1,yb,z0),p.createVector(x0,yb,z0), sideCol, SH.nz);
+            if (nb.dir === "pz") quad(g, p.createVector(x1,ya,z1),p.createVector(x0,ya,z1),p.createVector(x0,yb,z1),p.createVector(x1,yb,z1), sideCol, SH.pz);
+            if (nb.dir === "nx") quad(g, p.createVector(x0,ya,z1),p.createVector(x0,ya,z0),p.createVector(x0,yb,z0),p.createVector(x0,yb,z1), sideCol, SH.nx);
+            if (nb.dir === "px") quad(g, p.createVector(x1,ya,z0),p.createVector(x1,ya,z1),p.createVector(x1,yb,z1),p.createVector(x1,yb,z0), sideCol, SH.px);
+          }
+        }
+
+        // Decide trees/features on dry land above sea level.
+        if (h > seaY && topCol !== BLK.gravel) {
+          // Deterministic per-column chance so regen is stable for a seed.
+          const r = p.noise(i * 0.9 + seed * 7.1, j * 0.9 + seed * 3.3);
+          if (r > 1 - b.treeChance * 14 && validTreeSpot(i, j)) {
+            trees.push({ gx: i, gz: j, x: x0 + BS / 2, z: z0 + BS / 2, groundY: topY, type: b.tree });
+          }
+        }
+      }
+    }
+
+    g.computeNormals();
+    land = g;
+    triCount = g.faces.length;
+  }
+
+  // Keep trees from clustering: no two within one block.
+  function validTreeSpot(i, j) {
+    for (const t of trees) if (Math.abs(t.gx - i) <= 1 && Math.abs(t.gz - j) <= 1) return false;
+    return true;
+  }
+
+  // ---------- Tree / feature drawing (instanced from templates) ----------
+  function drawCube(x, y, z, w, hgt, d, col, shade) {
+    p.push();
+    p.translate(x, y - hgt / 2, z);
+    p.fill(col[0] * shade, col[1] * shade, col[2] * shade);
+    p.box(w, hgt, d);
+    p.pop();
+  }
+
+  function drawTree(t) {
+    const x = t.x, z = t.z, g = t.groundY;
+    if (t.type === "cactus") {
+      drawCube(x, g, z, BS * 0.5, BS * 2.4, BS * 0.5, BLK.cactus, 0.95);
+      return;
+    }
+    if (t.type === "mushroom") {
+      const stemH = BS * 2.2;
+      drawCube(x, g, z, BS * 0.45, stemH, BS * 0.45, BLK.mushStem, 1.0);
+      p.push();
+      p.translate(x, g - stemH - BS * 0.7, z);
+      p.fill(BLK.mushCap[0], BLK.mushCap[1], BLK.mushCap[2]);
+      p.box(BS * 2.1, BS * 1.4, BS * 2.1);
+      p.pop();
+      return;
+    }
+    // Oak / spruce: a log trunk topped by a leaf canopy.
+    const spruce = t.type === "spruce";
+    const trunkH = BS * (spruce ? 4 : 3);
+    drawCube(x, g, z, BS * 0.55, trunkH, BS * 0.55, BLK.log, 0.9);
+    const leaf = (biomeKey === "snow") ? BLK.snowLeaves : BLK.leaves;
+    const canopyY = g - trunkH;
+    if (spruce) {
+      // Stacked shrinking layers = conifer silhouette.
+      for (let k = 0; k < 3; k++) {
+        const w = BS * (3.2 - k * 0.8);
+        p.push();
+        p.translate(x, canopyY - BS * 0.6 - k * BS * 1.1, z);
+        p.fill(leaf[0] * 0.95, leaf[1] * 0.95, leaf[2] * 0.95);
+        p.box(w, BS * 1.1, w);
+        p.pop();
+      }
+    } else {
+      // Oak: a chunky 3-wide blob of leaves.
+      p.push();
+      p.translate(x, canopyY - BS * 0.9, z);
+      p.fill(leaf[0], leaf[1], leaf[2]);
+      p.box(BS * 3.1, BS * 2.2, BS * 3.1);
+      p.pop();
+    }
+  }
+
+  // ---------- Sky / water ----------
+  function skyColor() {
+    const b = BIOMES[biomeKey];
+    if (biomeKey === "desert") return [150, 190, 235];
+    if (biomeKey === "snow")   return [180, 205, 225];
+    if (biomeKey === "mushroom") return [120, 110, 140];
+    return [135, 196, 245];
+  }
+
+  function drawWater(maxH) {
+    const seaY = Math.round(seaLevel01 * maxH);
+    if (seaY <= 0) return;
+    const off = (cols * BS) / 2;
+    const y = -seaY * BS + BS * 0.15;
+    p.push();
+    p.noStroke();
+    p.fill(BLK.water[0], BLK.water[1], BLK.water[2], 150);
+    p.translate(0, y, 0);
+    p.rotateX(p.HALF_PI);
+    p.plane(cols * BS, cols * BS);
+    p.pop();
+  }
+
+  // ---------- p5 lifecycle ----------
+  function stageSize() {
+    const s = document.getElementById("stage");
+    return { w: s.clientWidth, h: s.clientHeight };
+  }
+
+  p.setup = () => {
+    const { w, h } = stageSize();
+    const c = p.createCanvas(w, h, p.WEBGL);
+    c.parent("stage");
+    p.noStroke();
+    p.setAttributes("antialias", true);
+    bakeTerrain();
+  };
+
+  p.windowResized = () => {
+    const { w, h } = stageSize();
+    p.resizeCanvas(w, h);
+  };
+
+  p.draw = () => {
+    const sky = skyColor();
+    p.background(sky[0], sky[1], sky[2]);
+
+    // Camera: orbit around the terrain center with pan + zoom.
+    if (spinning) autoYaw += 0.0025;
+    const yaw = camYaw + autoYaw;
+    const cx = Math.sin(yaw) * Math.cos(camPitch) * camDist;
+    const cy = -Math.sin(camPitch) * camDist;
+    const cz = Math.cos(yaw) * Math.cos(camPitch) * camDist;
+    p.camera(cx + panX, cy, cz + panZ, panX, -amp * 0.4, panZ, 0, 1, 0);
+    p.perspective(p.PI / 3, p.width / p.height, 10, 12000);
+
+    // Sun + sky ambient give the blocky terrain readable shading.
+    p.ambientLight(165, 165, 170);
+    p.directionalLight(255, 250, 235, -0.5, 0.8, -0.35);
+    p.directionalLight(70, 80, 100, 0.6, 0.5, 0.5);
+
+    // Terrain: single baked geometry, vertex-colored, one draw call.
+    p.push();
+    p.noStroke();
+    p.ambientMaterial(255);
+    p.model(land);
+    p.pop();
+
+    // Water sheet.
+    const maxH = Math.max(2, Math.round(amp / BS));
+    drawWater(maxH);
+
+    // Trees / features.
+    if (showTrees) {
+      p.push();
+      p.noStroke();
+      p.ambientMaterial(255);
+      for (const t of trees) drawTree(t);
+      p.pop();
+    }
+
+    updateStats();
+  };
+
+  function updateStats() {
+    const el = document.getElementById("stats");
+    if (!el) return;
+    el.innerHTML =
+      "seed <b>" + seed + "</b><br>" +
+      "grid <b>" + cols + "&times;" + cols + "</b><br>" +
+      "triangles <b>" + triCount.toLocaleString() + "</b><br>" +
+      "trees <b>" + trees.length + "</b><br>" +
+      "fps <b>" + Math.round(p.frameRate()) + "</b>";
+  }
+
+  // ---------- Interaction ----------
+  let dragging = false, lastX = 0, lastY = 0;
+  p.mousePressed = () => {
+    if (p.mouseX >= 0 && p.mouseX <= p.width && p.mouseY >= 0 && p.mouseY <= p.height) {
+      dragging = true; lastX = p.mouseX; lastY = p.mouseY;
+    }
+  };
+  p.mouseReleased = () => { dragging = false; };
+  p.mouseDragged = () => {
+    if (!dragging) return;
+    camYaw -= (p.mouseX - lastX) * 0.006;
+    camPitch += (p.mouseY - lastY) * 0.006;
+    camPitch = Math.max(0.08, Math.min(1.45, camPitch));
+    lastX = p.mouseX; lastY = p.mouseY;
+  };
+  p.mouseWheel = (e) => {
+    if (p.mouseX < 0 || p.mouseX > p.width) return;
+    camDist = Math.max(180, Math.min(2600, camDist + e.delta * 0.6));
+    return false; // stop page scroll
+  };
+
+  // Expose a small control API to the DOM handlers below.
+  p.controls = {
+    setBiome(k) { biomeKey = k; bakeTerrain(); },
+    setSize(n)  { cols = n; bakeTerrain(); },
+    setAmp(a)   { amp = a; bakeTerrain(); },
+    setSea(s)   { seaLevel01 = s / 100; bakeTerrain(); },
+    toggleTrees() { showTrees = !showTrees; return showTrees; },
+    toggleSpin()  { spinning = !spinning; return spinning; },
+    regen() { seed = (seed % 9999) + Math.floor(1 + Math.random() * 97); bakeTerrain(); },
+  };
+
+  // Keyboard panning (WASD / arrows).
+  p.keyPressed = () => {
+    const step = BS * 2;
+    if (p.keyCode === p.LEFT_ARROW  || p.key === 'a' || p.key === 'A') panX -= step;
+    if (p.keyCode === p.RIGHT_ARROW || p.key === 'd' || p.key === 'D') panX += step;
+    if (p.keyCode === p.UP_ARROW    || p.key === 'w' || p.key === 'W') panZ -= step;
+    if (p.keyCode === p.DOWN_ARROW  || p.key === 's' || p.key === 'S') panZ += step;
+  };
+};
+
+const app = new p5(sketch);
+
+// --- UI wiring -------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+
+$("biome").addEventListener("change", (e) => app.controls.setBiome(e.target.value));
+
+$("size").addEventListener("input", (e) => {
+  const n = +e.target.value;
+  $("sizeVal").textContent = n;
+  app.controls.setSize(n);
+});
+
+$("amp").addEventListener("input", (e) => {
+  const a = +e.target.value;
+  $("ampVal").textContent = a;
+  app.controls.setAmp(a);
+});
+
+$("sea").addEventListener("input", (e) => {
+  const s = +e.target.value;
+  $("seaVal").textContent = s;
+  app.controls.setSea(s);
+});
+
+$("trees").addEventListener("click", (e) => {
+  const on = app.controls.toggleTrees();
+  e.target.textContent = on ? "Trees: on" : "Trees: off";
+  e.target.setAttribute("aria-pressed", String(on));
+});
+
+$("spin").addEventListener("click", (e) => {
+  const on = app.controls.toggleSpin();
+  e.target.textContent = on ? "Spin: on" : "Spin: off";
+  e.target.setAttribute("aria-pressed", String(on));
+});
+
+$("regen").addEventListener("click", () => app.controls.regen());
+
+// Space toggles spin, R regenerates.
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    const on = app.controls.toggleSpin();
+    $("spin").textContent = on ? "Spin: on" : "Spin: off";
+    $("spin").setAttribute("aria-pressed", String(on));
+  } else if (e.key.toLowerCase() === "r") {
+    app.controls.regen();
+  }
+});
+</script>
+</body>
+</html>

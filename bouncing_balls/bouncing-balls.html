@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bouncing Balls</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.1/p5.min.js"></script>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #faf9f6;
+    --fg: #1d1d1f;
+    --muted: #7b7b82;
+    --line: #d8d6cf;
+    --panel: #ffffff;
+    --hover: rgba(0,0,0,.06);
+    --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a;
+      --fg: #ececf0;
+      --muted: #8f8f98;
+      --line: #36363c;
+      --panel: #222227;
+      --hover: rgba(255,255,255,.08);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  header {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  #title { font-size: 18px; font-weight: 650; margin-right: auto; }
+  .toolbar { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+  button {
+    font: inherit; font-size: 13px; color: var(--fg);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+    padding: 5px 11px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  }
+  button:hover { border-color: var(--muted); }
+  button:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+
+  .field { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--muted); }
+  .field input[type="range"] { width: 110px; accent-color: #e0507a; }
+  .field .val { color: var(--fg); min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+
+  #stage { flex: 1; position: relative; min-height: 0; }
+  #stage canvas { display: block; }
+
+  .hint {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: var(--muted); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 4px 10px;
+    pointer-events: none; opacity: .85;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div id="title">Bouncing Balls</div>
+    <div class="toolbar">
+      <label class="field">
+        Balls
+        <input id="count" type="range" min="1" max="60" value="18">
+        <span class="val" id="countVal">18</span>
+      </label>
+      <label class="field">
+        Gravity
+        <input id="gravity" type="range" min="0" max="100" value="30">
+        <span class="val" id="gravityVal">0.3</span>
+      </label>
+      <label class="field">
+        Bounce
+        <input id="bounce" type="range" min="50" max="100" value="88">
+        <span class="val" id="bounceVal">0.88</span>
+      </label>
+      <button id="trails" aria-pressed="true">Trails: on</button>
+      <button id="pause">Pause</button>
+      <button id="reset">Reset</button>
+    </div>
+  </header>
+
+  <div id="stage">
+    <div class="hint">Click or drag to launch a new ball</div>
+  </div>
+
+<script>
+const sketch = (p) => {
+  let balls = [];
+  let paused = false;
+  let trails = true;
+
+  // Tunable state, driven by the UI controls.
+  let settings = {
+    count: 18,
+    gravity: 0.3,
+    restitution: 0.88,
+  };
+
+  const PALETTE = [
+    "#e0507a", "#f2a65a", "#f7d154", "#5ac18e",
+    "#4aa8e0", "#7a6cf0", "#c86bd8", "#ff7b6b",
+  ];
+
+  class Ball {
+    constructor(x, y, vx, vy) {
+      this.r = p.random(12, 34);
+      this.x = x;
+      this.y = y;
+      this.vx = vx;
+      this.vy = vy;
+      // Mass scales with area so big balls feel heavier in collisions.
+      this.mass = this.r * this.r;
+      this.color = p.color(p.random(PALETTE));
+    }
+
+    applyGravity() {
+      this.vy += settings.gravity;
+    }
+
+    move() {
+      this.x += this.vx;
+      this.y += this.vy;
+    }
+
+    bounceWalls(w, h) {
+      const e = settings.restitution;
+      if (this.x - this.r < 0) {
+        this.x = this.r;
+        this.vx = Math.abs(this.vx) * e;
+      } else if (this.x + this.r > w) {
+        this.x = w - this.r;
+        this.vx = -Math.abs(this.vx) * e;
+      }
+      if (this.y - this.r < 0) {
+        this.y = this.r;
+        this.vy = Math.abs(this.vy) * e;
+      } else if (this.y + this.r > h) {
+        this.y = h - this.r;
+        this.vy = -Math.abs(this.vy) * e;
+        // Kill tiny residual bounces so balls settle instead of jittering.
+        if (Math.abs(this.vy) < 0.6 && settings.gravity > 0) this.vy = 0;
+        this.vx *= 0.985; // ground friction
+      }
+    }
+
+    draw() {
+      p.noStroke();
+      p.fill(this.color);
+      p.circle(this.x, this.y, this.r * 2);
+      // A soft highlight to give each ball a little depth.
+      p.fill(255, 255, 255, 70);
+      p.circle(this.x - this.r * 0.3, this.y - this.r * 0.3, this.r * 0.6);
+    }
+  }
+
+  // Elastic collision response between two circles of differing mass.
+  function resolveCollision(a, b) {
+    let dx = b.x - a.x;
+    let dy = b.y - a.y;
+    let dist = Math.hypot(dx, dy);
+    const minDist = a.r + b.r;
+    if (dist === 0) { dx = 0.01; dy = 0; dist = 0.01; }
+    if (dist >= minDist) return;
+
+    // Separate the overlap, weighted by mass.
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const overlap = minDist - dist;
+    const totalMass = a.mass + b.mass;
+    a.x -= nx * overlap * (b.mass / totalMass);
+    a.y -= ny * overlap * (b.mass / totalMass);
+    b.x += nx * overlap * (a.mass / totalMass);
+    b.y += ny * overlap * (a.mass / totalMass);
+
+    // Relative velocity along the collision normal.
+    const rvx = b.vx - a.vx;
+    const rvy = b.vy - a.vy;
+    const velAlongNormal = rvx * nx + rvy * ny;
+    if (velAlongNormal > 0) return; // already separating
+
+    const e = settings.restitution;
+    const j = -(1 + e) * velAlongNormal / (1 / a.mass + 1 / b.mass);
+    const ix = j * nx;
+    const iy = j * ny;
+    a.vx -= ix / a.mass;
+    a.vy -= iy / a.mass;
+    b.vx += ix / b.mass;
+    b.vy += iy / b.mass;
+  }
+
+  function seedBalls(n) {
+    balls = [];
+    for (let i = 0; i < n; i++) {
+      balls.push(new Ball(
+        p.random(p.width),
+        p.random(p.height * 0.5),
+        p.random(-4, 4),
+        p.random(-2, 2)
+      ));
+    }
+  }
+
+  function stageSize() {
+    const stage = document.getElementById("stage");
+    return { w: stage.clientWidth, h: stage.clientHeight };
+  }
+
+  p.setup = () => {
+    const { w, h } = stageSize();
+    const c = p.createCanvas(w, h);
+    c.parent("stage");
+    seedBalls(settings.count);
+  };
+
+  p.windowResized = () => {
+    const { w, h } = stageSize();
+    p.resizeCanvas(w, h);
+  };
+
+  p.draw = () => {
+    // Trails fade the previous frame; otherwise clear fully each tick.
+    if (trails) {
+      p.noStroke();
+      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      p.fill(dark ? 23 : 250, dark ? 23 : 249, dark ? 26 : 246, 45);
+      p.rect(0, 0, p.width, p.height);
+    } else {
+      const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      p.background(dark ? 23 : 250, dark ? 23 : 249, dark ? 26 : 246);
+    }
+
+    if (!paused) {
+      for (const b of balls) {
+        b.applyGravity();
+        b.move();
+      }
+      // Pairwise collisions.
+      for (let i = 0; i < balls.length; i++) {
+        for (let j = i + 1; j < balls.length; j++) {
+          resolveCollision(balls[i], balls[j]);
+        }
+      }
+      for (const b of balls) b.bounceWalls(p.width, p.height);
+    }
+
+    for (const b of balls) b.draw();
+  };
+
+  // Launch a ball on click; drag to aim and set speed.
+  let dragStart = null;
+  p.mousePressed = () => {
+    if (mouseInStage()) dragStart = { x: p.mouseX, y: p.mouseY };
+  };
+  p.mouseReleased = () => {
+    if (!dragStart || !mouseInStage()) { dragStart = null; return; }
+    const vx = (p.mouseX - dragStart.x) * 0.12;
+    const vy = (p.mouseY - dragStart.y) * 0.12;
+    balls.push(new Ball(dragStart.x, dragStart.y, vx || p.random(-3, 3), vy || p.random(-3, 3)));
+    dragStart = null;
+  };
+
+  function mouseInStage() {
+    return p.mouseX >= 0 && p.mouseX <= p.width && p.mouseY >= 0 && p.mouseY <= p.height;
+  }
+
+  // Expose a small control API to the DOM handlers below.
+  p.controls = {
+    setCount(n) {
+      settings.count = n;
+      seedBalls(n);
+    },
+    setGravity(g) { settings.gravity = g; },
+    setBounce(b) { settings.restitution = b; },
+    togglePause() { paused = !paused; return paused; },
+    toggleTrails() { trails = !trails; return trails; },
+    reset() { seedBalls(settings.count); },
+  };
+};
+
+const app = new p5(sketch);
+
+// --- UI wiring -------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+
+$("count").addEventListener("input", (e) => {
+  const n = +e.target.value;
+  $("countVal").textContent = n;
+  app.controls.setCount(n);
+});
+
+$("gravity").addEventListener("input", (e) => {
+  const g = +e.target.value / 100; // 0 .. 1.0
+  $("gravityVal").textContent = g.toFixed(2);
+  app.controls.setGravity(g);
+});
+
+$("bounce").addEventListener("input", (e) => {
+  const b = +e.target.value / 100; // 0.50 .. 1.00
+  $("bounceVal").textContent = b.toFixed(2);
+  app.controls.setBounce(b);
+});
+
+$("pause").addEventListener("click", (e) => {
+  const paused = app.controls.togglePause();
+  e.target.textContent = paused ? "Play" : "Pause";
+});
+
+$("trails").addEventListener("click", (e) => {
+  const on = app.controls.toggleTrails();
+  e.target.textContent = on ? "Trails: on" : "Trails: off";
+  e.target.setAttribute("aria-pressed", String(on));
+});
+
+$("reset").addEventListener("click", () => app.controls.reset());
+
+// Keyboard: space pauses, R resets.
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    const paused = app.controls.togglePause();
+    $("pause").textContent = paused ? "Play" : "Pause";
+  } else if (e.key.toLowerCase() === "r") {
+    app.controls.reset();
+  }
+});
+</script>
+</body>
+</html>
